@@ -323,6 +323,9 @@ if ACTION in ["refresh", "force-refresh"]:
         if item.attrib["enabled"] == "1":
             REPO_ALIAS.append(item.attrib["alias"])
     logging.debug(f"Enabled repos: {REPO_ALIAS}")
+    if not REPO_ALIAS:
+        logging.info("No repos found. Exiting...")
+        sys.exit()
     try:
         asyncio.run(main_task(MAX_JOBS, ACTION, REPO_ALIAS))
     except asyncio.exceptions.CancelledError:
@@ -347,6 +350,9 @@ elif ACTION == "dup-download":
         if item.attrib["type"] == "package":
             DUP_PKG.append(item.attrib["name"])
     logging.debug(f"Packages to download: {DUP_PKG}")
+    if not DUP_PKG:
+        logging.info("Nothing to do. Exiting...")
+        sys.exit()
     try:
         asyncio.run(main_task(MAX_JOBS, ACTION, DUP_PKG))
     except asyncio.exceptions.CancelledError:
