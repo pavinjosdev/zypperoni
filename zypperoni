@@ -79,7 +79,7 @@ mount -o bind /var/cache/zypp /tmp/zypperoni/{uuid}/rootfs/var/cache/zypp;
 
 # Shell commands to perform zypper download
 download_shell_commands = """
-chroot /tmp/zypperoni/{uuid}/rootfs zypper --non-interactive download {pkg_name};
+chroot /tmp/zypperoni/{uuid}/rootfs env -i zypper --non-interactive download {pkg_name};
 """
 
 # Shell commands for cleaning up temp mounts
