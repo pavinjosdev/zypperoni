@@ -82,15 +82,15 @@ download_shell_commands = """
 chroot /tmp/zypperoni/{uuid}/rootfs env -i zypper --non-interactive download {pkg_name};
 """
 
-# Shell commands for cleaning up temp mounts
-umount_shell_commands = """
-umount /tmp/zypperoni/{uuid}/rootfs/var/lib/ca-certificates;
-umount /tmp/zypperoni/{uuid}/rootfs/var/cache/zypp;
-umount /tmp/zypperoni/{uuid}/rootfs/var;
-umount /tmp/zypperoni/{uuid}/rootfs/run;
-umount /tmp/zypperoni/{uuid}/rootfs/tmp;
-umount /tmp/zypperoni/{uuid}/rootfs/dev;
-umount /tmp/zypperoni/{uuid}/rootfs;
+# Dirs to unmount (one per line)
+umount_dirs = """
+/tmp/zypperoni/{uuid}/rootfs/var/lib/ca-certificates
+/tmp/zypperoni/{uuid}/rootfs/var/cache/zypp
+/tmp/zypperoni/{uuid}/rootfs/var
+/tmp/zypperoni/{uuid}/rootfs/run
+/tmp/zypperoni/{uuid}/rootfs/tmp
+/tmp/zypperoni/{uuid}/rootfs/dev
+/tmp/zypperoni/{uuid}/rootfs
 """
 
 ################################
@@ -105,6 +105,17 @@ def get_zypp_lock():
 def release_zypp_lock():
     os.system(f"echo -n > {ZYPPER_PID_FILE}")
     return True
+
+# Function to unmount list of dirs
+def unmount(dirs):
+    for dir in dirs:
+        if os.path.isdir(dir):
+            while True:
+                os.system(f"umount {dir}")
+                ret_code = os.system(f"findmnt {dir}")
+                if ret_code != 0:
+                    break
+                time.sleep(0.01)
 
 # Function to recursively delete temp files
 def recursive_delete(path):
@@ -244,15 +255,9 @@ async def main_task(num_jobs, task_type, task_items):
         for uuid in UUID_UNCHANGED:
             temp_dir = f"/tmp/zypperoni/{uuid}/rootfs"
             if os.path.isdir(temp_dir):
-                commands = umount_shell_commands.format(
-                    uuid=uuid,
-                )
-                while True:
-                    res = shell_exec(commands)
-                    logging.debug(f"[umount result]\n{res}")
-                    if res.find("target is busy") == -1:
-                        break
-                    time.sleep(0.01)
+                dirs = umount_dirs.format(uuid=uuid)
+                dirs = dirs.strip().split("\n")
+                unmount(dirs)
         # cleanup temp dir
         logging.info("Cleaning up temp directory...")
         recursive_delete("/tmp/zypperoni")
@@ -297,10 +302,13 @@ if os.getuid() != 0:
     sys.exit(3)
 
 # Bail out if required dependecies are not available
-programs = ["zypper", "echo", "ps", "sed", "awk", "mkdir", "mount", "chroot", "umount", "sleep", "rm", "env"]
+programs = ["zypper", "echo", "ps", "sed", "awk", "mkdir", "mount", "chroot", "umount", "sleep", "rm", "env", "findmnt"]
 for program in programs:
     if not shell_exec(f"command -v {program}"):
-        logging.error(f"Bailing out, missing required dependecy {program!r} in PATH ({os.environ.get('PATH')}) for user {os.environ.get('USER')}")
+        logging.error(f"Bailing out, missing required dependecy {program!r} in PATH ({os.environ.get('PATH')}) " \
+            f"for user {os.environ.get('USER')!r}. The following shell tools " \
+            f"are required for zypperoni to function: {', '.join(programs)}"
+        )
         sys.exit(4)
 
 # Check if zypper is already running
@@ -326,7 +334,7 @@ if ACTION in ["refresh", "force-refresh"]:
     # get all enabled repos
     logging.info("Getting all enabled repos")
     REPO_ALIAS = []
-    xml_output = shell_exec("zypper --non-interactive --xmlout repos")
+    xml_output = shell_exec("env -i zypper --non-interactive --xmlout repos")
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
     for item in docroot.iter("repo"):
@@ -349,7 +357,7 @@ elif ACTION == "dup-download":
     # get all packages to be downloaded
     logging.info("Getting all packages to be downloaded")
     DUP_PKG = []
-    xml_output = shell_exec("zypper --non-interactive --xmlout dist-upgrade --dry-run")
+    xml_output = shell_exec("env -i zypper --non-interactive --xmlout dist-upgrade --dry-run")
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
     for item in docroot.iter('install-summary'):
