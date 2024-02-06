@@ -322,9 +322,9 @@ if os.path.isfile(ZYPPER_PID_FILE):
 if ACTION in ["refresh", "force-refresh"]:
     # get all enabled repos
     logging.info("Getting all enabled repos")
-    get_zypp_lock()
     REPO_ALIAS = []
     xml_output = shell_exec("zypper --non-interactive --xmlout repos")
+    get_zypp_lock()
     docroot = ET.fromstring(xml_output)
     for item in docroot.iter("repo"):
         if item.attrib["enabled"] == "1":
@@ -345,9 +345,9 @@ if ACTION in ["refresh", "force-refresh"]:
 elif ACTION == "dup-download":
     # get all packages to be downloaded
     logging.info("Getting all packages to be downloaded")
-    get_zypp_lock()
     DUP_PKG = []
     xml_output = shell_exec("zypper --non-interactive --xmlout dist-upgrade --dry-run")
+    get_zypp_lock()
     docroot = ET.fromstring(xml_output)
     for item in docroot.iter('install-summary'):
         download_size_bytes = item.attrib["download-size"]
