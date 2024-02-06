@@ -51,12 +51,14 @@ refresh_mount_commands = """
 mkdir -p /tmp/zypperoni/{uuid}/rootfs;
 mkdir -p /tmp/zypperoni/{uuid}/run;
 mkdir -p /tmp/zypperoni/{uuid}/var/cache/zypp;
+mkdir -p /tmp/zypperoni/{uuid}/var/lib/ca-certificates;
 mount -o bind,ro / /tmp/zypperoni/{uuid}/rootfs;
 mount -t devtmpfs none /tmp/zypperoni/{uuid}/rootfs/dev;
 mount -t tmpfs none /tmp/zypperoni/{uuid}/rootfs/tmp;
 mount -o bind /tmp/zypperoni/{uuid}/run /tmp/zypperoni/{uuid}/rootfs/run;
 mount -o bind /tmp/zypperoni/{uuid}/var /tmp/zypperoni/{uuid}/rootfs/var;
 mount -o bind /var/cache/zypp /tmp/zypperoni/{uuid}/rootfs/var/cache/zypp;
+mount -o bind,ro /var/lib/ca-certificates /tmp/zypperoni/{uuid}/rootfs/var/lib/ca-certificates;
 """
 
 # Shell commands to perform zypper refresh / force-refresh
@@ -82,6 +84,7 @@ chroot /tmp/zypperoni/{uuid}/rootfs zypper --non-interactive download {pkg_name}
 
 # Shell commands for cleaning up temp mounts
 umount_shell_commands = """
+umount /tmp/zypperoni/{uuid}/rootfs/var/lib/ca-certificates;
 umount /tmp/zypperoni/{uuid}/rootfs/var/cache/zypp;
 umount /tmp/zypperoni/{uuid}/rootfs/var;
 umount /tmp/zypperoni/{uuid}/rootfs/run;
