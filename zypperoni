@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+#
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# Copyright (C) 2024  Pavin Joseph <https://github.com/pavinjosdev>
+#
+# zypperoni is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License version 3
+# as published by the Free Software Foundation.
+#
+# zypperoni is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with zypperoni; if not, see <http://www.gnu.org/licenses/>.
+
+import os
+import sys
+import time
+import logging
+import asyncio
+import subprocess
+from uuid import uuid4
+from shlex import quote
+import xml.etree.ElementTree as ET
+
+# Command help/usage info
+help_text = """
+Usage: zypperoni [options] command
+
+zypperoni provides parallel operations
+for zypper's oft-used time consuming commands.
+
+Commands:
+  refresh - Refresh all enabled repos
+  force-refresh - Force refresh all enabled repos
+  dup-download - Download all packages required for distribution upgrade
+
+Options:
+  --debug - Enable debug output
+  --max-jobs - Maximum number of parallel operations [default: 10 / max: 20]
+"""
+
+# Shell commands to prepare temp mounts for zypper refresh
+refresh_mount_commands = """
+mkdir -p /tmp/zypperoni/{uuid}/rootfs;
+mkdir -p /tmp/zypperoni/{uuid}/run;
+mkdir -p /tmp/zypperoni/{uuid}/var/cache/zypp;
+mount -o bind,ro / /tmp/zypperoni/{uuid}/rootfs;
+mount -t devtmpfs none /tmp/zypperoni/{uuid}/rootfs/dev;
+mount -t tmpfs none /tmp/zypperoni/{uuid}/rootfs/tmp;
+mount -o bind /tmp/zypperoni/{uuid}/run /tmp/zypperoni/{uuid}/rootfs/run;
+mount -o bind /tmp/zypperoni/{uuid}/var /tmp/zypperoni/{uuid}/rootfs/var;
+mount -o bind /var/cache/zypp /tmp/zypperoni/{uuid}/rootfs/var/cache/zypp;
+"""
+
+# Shell commands to perform zypper refresh / force-refresh
+refresh_shell_commands = """
+chroot /tmp/zypperoni/{uuid}/rootfs zypper --non-interactive {refresh_type} {repo_alias};
+"""
+
+# Shell commands to prepare temp mounts for zypper download
+download_mount_commands = """
+mkdir -p /tmp/zypperoni/{uuid}/rootfs;
+mkdir -p /tmp/zypperoni/{uuid}/run;
+mkdir -p /tmp/zypperoni/{uuid}/var/cache/zypp;
+mount -o bind,ro / /tmp/zypperoni/{uuid}/rootfs;
+mount -o bind /tmp/zypperoni/{uuid}/run /tmp/zypperoni/{uuid}/rootfs/run;
+mount -o bind /tmp/zypperoni/{uuid}/var /tmp/zypperoni/{uuid}/rootfs/var;
+mount -o bind /var/cache/zypp /tmp/zypperoni/{uuid}/rootfs/var/cache/zypp;
+"""
+
+# Shell commands to perform zypper download
+download_shell_commands = """
+chroot /tmp/zypperoni/{uuid}/rootfs zypper --non-interactive download {pkg_name};
+"""
+
+# Shell commands for cleaning up temp mounts
+umount_shell_commands = """
+umount /tmp/zypperoni/{uuid}/rootfs/var/cache/zypp;
+umount /tmp/zypperoni/{uuid}/rootfs/var;
+umount /tmp/zypperoni/{uuid}/rootfs/run;
+umount /tmp/zypperoni/{uuid}/rootfs/tmp;
+umount /tmp/zypperoni/{uuid}/rootfs/dev;
+umount /tmp/zypperoni/{uuid}/rootfs;
+"""
+
+################################
+
+# Function to take exclusive control of future zypper invokations
+def get_zypp_lock():
+    our_pid = os.getpid()
+    os.system(f"echo {our_pid} > {filename}")
+    return our_pid
+
+# Function to recursively delete temp files
+def recursive_delete(path):
+    # perform some sanity checks
+    if not path.startswith("/tmp/zypperoni"):
+        return False
+    command = f"rm -r {quote(path)}"
+    os.system(command)
+    return True
+
+# Function to get output of shell command
+def shell_exec(command):
+    res = subprocess.run(command, shell=True, capture_output=True, encoding="utf8", errors="replace")
+    output = res.stdout + res.stderr
+    return output.strip()
+
+# Async function to perform zypper shell commands
+async def zypper_task(lock, UUID, task_type, task_item, total_items, item_counter):
+    try:
+        async with lock:
+            uuid = UUID.pop()
+        log_messages = {}
+        commands = ""
+        temp_dir = f"/tmp/zypperoni/{uuid}/rootfs"
+        if task_type == "refresh":
+            log_messages.update({"start": f"Refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
+            log_messages.update({"success": f"Successfully refreshed repo {task_item!r}"})
+            log_messages.update({"error": f"Error refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
+            log_messages.update({"exception": f"Received SIGINT while refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
+            if not os.path.isdir(temp_dir):
+                commands = refresh_mount_commands + refresh_shell_commands
+                commands = commands.format(
+                    uuid=uuid,
+                    refresh_type="refresh",
+                    repo_alias=task_item,
+                )
+            else:
+                commands = refresh_shell_commands.format(
+                    uuid=uuid,
+                    refresh_type="refresh",
+                    repo_alias=task_item,
+                )
+        elif task_type == "force-refresh":
+            log_messages.update({"start": f"Force refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
+            log_messages.update({"success": f"Successfully force refreshed repo {task_item!r}"})
+            log_messages.update({"error": f"Error force refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
+            log_messages.update({"exception": f"Received SIGINT while force refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
+            if not os.path.isdir(temp_dir):
+                commands = refresh_mount_commands + refresh_shell_commands
+                commands = commands.format(
+                    uuid=uuid,
+                    refresh_type="refresh --force",
+                    repo_alias=task_item,
+                )
+            else:
+                commands = refresh_shell_commands.format(
+                    uuid=uuid,
+                    refresh_type="refresh --force",
+                    repo_alias=task_item,
+                )
+        elif task_type == "dup-download":
+            log_messages.update({"start": f"Downloading package [{item_counter}/{total_items}] {task_item!r}"})
+            log_messages.update({"success": f"Successfully downloaded package {task_item!r}"})
+            log_messages.update({"error": f"Error downloading package [{item_counter}/{total_items}] {task_item!r}"})
+            log_messages.update({"exception": f"Received SIGINT while downloading package [{item_counter}/{total_items}] {task_item!r}"})
+            if not os.path.isdir(temp_dir):
+                commands = download_mount_commands + download_shell_commands
+                commands = commands.format(
+                    uuid=uuid,
+                    pkg_name=task_item,
+                )
+            else:
+                commands = download_shell_commands.format(
+                    uuid=uuid,
+                    pkg_name=task_item,
+                )
+        logging.info(log_messages.get("start"))
+        proc = await asyncio.create_subprocess_shell(
+            commands,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode == 0:
+            logging.info(log_messages.get("success"))
+        else:
+            logging.error(f"{log_messages.get('error')}. zypper exit code: {proc.returncode}")
+        if stdout:
+            logging.debug(f'[zypper output]\n{stdout.decode()}')
+        if stderr:
+            logging.debug(f'[zypper error]\n{stderr.decode()}')
+        async with lock:
+            UUID.append(uuid)
+    except asyncio.exceptions.CancelledError:
+        logging.debug(log_messages.get("exception"))
+
+# Async function to perform multiple tasks concurrently
+async def main_task(num_jobs, task_type, task_items):
+    # init array of temp dir UUIDs corresponding to max num of jobs
+    UUID = [f"{uuid4()!s}" for _ in range(num_jobs)]
+    UUID_UNCHANGED = UUID.copy()
+    total_items = len(task_items)
+    item_counter = 0
+    try:
+        # start processing tasks
+        lock = asyncio.Lock()
+        while task_items:
+            if len(UUID) == 0:
+                await asyncio.sleep(0.1)
+                continue
+            log_messages = {}
+            task_item = task_items.pop(0)
+            item_counter += 1
+            if task_type == "refresh":
+                log_messages.update({"exception": "Received SIGINT while processing tasks to refresh repo"})
+            elif task_type == "force-refresh":
+                log_messages.update({"exception": "Received SIGINT while processing tasks to force refresh repo"})
+            elif task_type == "dup-download":
+                log_messages.update({"exception": "Received SIGINT while processing tasks to download packages"})
+            asyncio.create_task(zypper_task(lock, UUID, task_type, task_item, total_items, item_counter))
+            await asyncio.sleep(0.1)
+        # finished processing all tasks
+        tasks = asyncio.all_tasks()
+        # wait for all tasks to finish
+        while len(tasks) > 1:
+            tasks = asyncio.all_tasks()
+            await asyncio.sleep(0.1)
+    except asyncio.exceptions.CancelledError:
+        logging.debug(log_messages.get("exception"))
+        logging.info("Cancelling pending tasks...")
+        for task in asyncio.all_tasks():
+            task.cancel()
+            await asyncio.sleep(0.1)
+    finally:
+        # cleanup temp mounts
+        logging.info("Cleaning up temp mounts...")
+        for uuid in UUID_UNCHANGED:
+            temp_dir = f"/tmp/zypperoni/{uuid}/rootfs"
+            if os.path.isdir(temp_dir):
+                commands = umount_shell_commands.format(
+                    uuid=uuid,
+                )
+                while True:
+                    res = shell_exec(commands)
+                    logging.debug(f"[umount result]\n{res}")
+                    if res.find("target is busy") == -1:
+                        break
+                    time.sleep(0.01)
+        # cleanup temp dir
+        logging.info("Cleaning up temp directory...")
+        recursive_delete("/tmp/zypperoni")
+        # release zypper exclusive lock
+        os.system("> /run/zypp.pid")
+
+################################
+
+# Get argument
+ACTION = sys.argv.pop()
+if ACTION not in ["refresh", "force-refresh", "dup-download"]:
+    print(help_text.strip())
+    sys.exit(1)
+
+# Get options
+DEBUG = True if "--debug" in sys.argv else False
+MAX_JOBS = 10
+if "--max-jobs" in sys.argv:
+    try:
+        num_jobs = int(sys.argv[sys.argv.index("--max-jobs") + 1])
+        if num_jobs in range(1, 21):
+            MAX_JOBS = num_jobs
+        else:
+            raise ValueError
+    except ValueError:
+        print("Invalid value for option '--max-jobs'")
+        sys.exit(2)
+    except IndexError:
+        print("No value provided for option '--max-jobs'")
+        sys.exit(2)
+
+# Setup logging
+logging.basicConfig(
+    stream=sys.stdout,
+    format="%(asctime)s: %(levelname)s: %(message)s",
+    level=logging.DEBUG if DEBUG else logging.INFO,
+)
+
+# Bail out if we're not root
+if os.getuid() != 0:
+    logging.error("Bailing out, program must be run with root privileges")
+    sys.exit(3)
+
+# Bail out if required dependecies are not available
+programs = ["zypper", "echo", "ps", "sed", "awk", "mkdir", "mount", "chroot", "umount", "sleep", "rm"]
+for program in programs:
+    if not shell_exec(f"command -v {program}"):
+        logging.error(f"Bailing out, missing required dependecy {program!r} in PATH ({os.environ.get('PATH')}) for user {os.environ.get('USER')}")
+        sys.exit(4)
+
+# Check if zypper is already running
+filename = "/run/zypp.pid"
+pid = None
+pid_program = None
+if os.path.isfile(filename):
+    with open(filename, "r") as f:
+        pid = f.read().strip()
+        try:
+            pid = int(pid)
+        except ValueError:
+            pid = None
+        if pid:
+            pid_program = shell_exec(f"ps -p {pid} | sed '1d' | awk '{{print $4}}'")
+            if pid_program:
+                msg = f"zypper is already invoked by the application with pid {pid} ({pid_program}).\n" \
+                "Close this application before trying again."
+                logging.error(msg)
+                sys.exit(5)
+
+# Handle actions: refresh, force-refresh
+if ACTION in ["refresh", "force-refresh"]:
+    # get all enabled repos
+    logging.info("Getting all enabled repos")
+    REPO_ALIAS = []
+    xml_output = shell_exec("zypper --non-interactive --xmlout repos")
+    get_zypp_lock()
+    docroot = ET.fromstring(xml_output)
+    for item in docroot.iter("repo"):
+        if item.attrib["enabled"] == "1":
+            REPO_ALIAS.append(item.attrib["alias"])
+    logging.debug(f"Enabled repos: {REPO_ALIAS}")
+    try:
+        asyncio.run(main_task(MAX_JOBS, ACTION, REPO_ALIAS))
+    except asyncio.exceptions.CancelledError:
+        logging.debug("Received SIGINT for asyncio runner")
+    except:
+        logging.exception("Unknown exception for asyncio runner")
+
+# Handle action: download
+elif ACTION == "dup-download":
+    # get all packages to be downloaded
+    logging.info("Getting all packages to be downloaded")
+    DUP_PKG = []
+    xml_output = shell_exec("zypper --non-interactive --xmlout dist-upgrade --dry-run")
+    get_zypp_lock()
+    docroot = ET.fromstring(xml_output)
+    for item in docroot.iter('install-summary'):
+        download_size_bytes = item.attrib["download-size"]
+        num_pkgs = item.attrib["packages-to-change"]
+        logging.info(f"Number of packages to download: {num_pkgs}")
+        logging.info(f"Total download size: {float(download_size_bytes)/1000**2:.2f} MB")
+    for item in docroot.iter("solvable"):
+        if item.attrib["type"] == "package":
+            DUP_PKG.append(item.attrib["name"])
+    logging.debug(f"Packages to download: {DUP_PKG}")
+    try:
+        asyncio.run(main_task(MAX_JOBS, ACTION, DUP_PKG))
+    except asyncio.exceptions.CancelledError:
+        logging.debug("Received SIGINT for asyncio runner")
+    except:
+        logging.exception("Unknown exception for asyncio runner")
