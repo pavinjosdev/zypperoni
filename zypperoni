@@ -63,7 +63,7 @@ mount -o bind,ro /var/lib/ca-certificates /tmp/zypperoni/{uuid}/rootfs/var/lib/c
 
 # Shell commands to perform zypper refresh / force-refresh
 refresh_shell_commands = """
-chroot /tmp/zypperoni/{uuid}/rootfs zypper --non-interactive {refresh_type} {repo_alias};
+chroot /tmp/zypperoni/{uuid}/rootfs env -i zypper --non-interactive {refresh_type} {repo_alias};
 """
 
 # Shell commands to prepare temp mounts for zypper download
@@ -297,7 +297,7 @@ if os.getuid() != 0:
     sys.exit(3)
 
 # Bail out if required dependecies are not available
-programs = ["zypper", "echo", "ps", "sed", "awk", "mkdir", "mount", "chroot", "umount", "sleep", "rm"]
+programs = ["zypper", "echo", "ps", "sed", "awk", "mkdir", "mount", "chroot", "umount", "sleep", "rm", "env"]
 for program in programs:
     if not shell_exec(f"command -v {program}"):
         logging.error(f"Bailing out, missing required dependecy {program!r} in PATH ({os.environ.get('PATH')}) for user {os.environ.get('USER')}")
