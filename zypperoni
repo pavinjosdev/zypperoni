@@ -26,6 +26,9 @@ from uuid import uuid4
 from shlex import quote
 import xml.etree.ElementTree as ET
 
+# Constants
+ZYPPER_PID_FILE = "/run/zypp.pid"
+
 # Command help/usage info
 help_text = """
 Usage: zypperoni [options] command
@@ -92,8 +95,13 @@ umount /tmp/zypperoni/{uuid}/rootfs;
 # Function to take exclusive control of future zypper invokations
 def get_zypp_lock():
     our_pid = os.getpid()
-    os.system(f"echo {our_pid} > {filename}")
+    os.system(f"echo {our_pid} > {ZYPPER_PID_FILE}")
     return our_pid
+
+# Function to release lock on zypper
+def release_zypp_lock():
+    os.system(f"echo -n > {ZYPPER_PID_FILE}")
+    return True
 
 # Function to recursively delete temp files
 def recursive_delete(path):
@@ -246,7 +254,7 @@ async def main_task(num_jobs, task_type, task_items):
         logging.info("Cleaning up temp directory...")
         recursive_delete("/tmp/zypperoni")
         # release zypper exclusive lock
-        os.system("> /run/zypp.pid")
+        release_zypp_lock()
 
 ################################
 
@@ -293,11 +301,10 @@ for program in programs:
         sys.exit(4)
 
 # Check if zypper is already running
-filename = "/run/zypp.pid"
 pid = None
 pid_program = None
-if os.path.isfile(filename):
-    with open(filename, "r") as f:
+if os.path.isfile(ZYPPER_PID_FILE):
+    with open(ZYPPER_PID_FILE, "r") as f:
         pid = f.read().strip()
         try:
             pid = int(pid)
@@ -315,9 +322,9 @@ if os.path.isfile(filename):
 if ACTION in ["refresh", "force-refresh"]:
     # get all enabled repos
     logging.info("Getting all enabled repos")
+    get_zypp_lock()
     REPO_ALIAS = []
     xml_output = shell_exec("zypper --non-interactive --xmlout repos")
-    get_zypp_lock()
     docroot = ET.fromstring(xml_output)
     for item in docroot.iter("repo"):
         if item.attrib["enabled"] == "1":
@@ -325,6 +332,7 @@ if ACTION in ["refresh", "force-refresh"]:
     logging.debug(f"Enabled repos: {REPO_ALIAS}")
     if not REPO_ALIAS:
         logging.info("No repos found. Exiting...")
+        release_zypp_lock()
         sys.exit()
     try:
         asyncio.run(main_task(MAX_JOBS, ACTION, REPO_ALIAS))
@@ -337,9 +345,9 @@ if ACTION in ["refresh", "force-refresh"]:
 elif ACTION == "dup-download":
     # get all packages to be downloaded
     logging.info("Getting all packages to be downloaded")
+    get_zypp_lock()
     DUP_PKG = []
     xml_output = shell_exec("zypper --non-interactive --xmlout dist-upgrade --dry-run")
-    get_zypp_lock()
     docroot = ET.fromstring(xml_output)
     for item in docroot.iter('install-summary'):
         download_size_bytes = item.attrib["download-size"]
@@ -352,6 +360,7 @@ elif ACTION == "dup-download":
     logging.debug(f"Packages to download: {DUP_PKG}")
     if not DUP_PKG:
         logging.info("Nothing to do. Exiting...")
+        release_zypp_lock()
         sys.exit()
     try:
         asyncio.run(main_task(MAX_JOBS, ACTION, DUP_PKG))
