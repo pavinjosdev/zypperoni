@@ -71,10 +71,12 @@ download_mount_commands = """
 mkdir -p /tmp/zypperoni/{uuid}/rootfs;
 mkdir -p /tmp/zypperoni/{uuid}/run;
 mkdir -p /tmp/zypperoni/{uuid}/var/cache/zypp;
+mkdir -p /tmp/zypperoni/{uuid}/var/lib/ca-certificates;
 mount -o bind,ro / /tmp/zypperoni/{uuid}/rootfs;
 mount -o bind /tmp/zypperoni/{uuid}/run /tmp/zypperoni/{uuid}/rootfs/run;
 mount -o bind /tmp/zypperoni/{uuid}/var /tmp/zypperoni/{uuid}/rootfs/var;
 mount -o bind /var/cache/zypp /tmp/zypperoni/{uuid}/rootfs/var/cache/zypp;
+mount -o bind,ro /var/lib/ca-certificates /tmp/zypperoni/{uuid}/rootfs/var/lib/ca-certificates;
 """
 
 # Shell commands to perform zypper download
