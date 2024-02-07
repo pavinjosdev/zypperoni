@@ -52,6 +52,12 @@ mkdir -p /tmp/zypperoni/{uuid}/rootfs;
 mkdir -p /tmp/zypperoni/{uuid}/run;
 mkdir -p /tmp/zypperoni/{uuid}/var/cache/zypp;
 mkdir -p /tmp/zypperoni/{uuid}/var/lib/ca-certificates;
+if readlink /etc/resolv.conf; then
+    RESOLV_PATH=$(readlink /etc/resolv.conf);
+    TEMP_DIR=/tmp/zypperoni/{uuid}"$(dirname "$RESOLV_PATH")";
+    mkdir -p "$TEMP_DIR";
+    cat "$RESOLV_PATH" > "$TEMP_DIR"/"$(basename "$RESOLV_PATH")";
+fi;
 mount -o bind,ro / /tmp/zypperoni/{uuid}/rootfs;
 mount -t devtmpfs none /tmp/zypperoni/{uuid}/rootfs/dev;
 mount -t tmpfs none /tmp/zypperoni/{uuid}/rootfs/tmp;
@@ -72,6 +78,12 @@ mkdir -p /tmp/zypperoni/{uuid}/rootfs;
 mkdir -p /tmp/zypperoni/{uuid}/run;
 mkdir -p /tmp/zypperoni/{uuid}/var/cache/zypp;
 mkdir -p /tmp/zypperoni/{uuid}/var/lib/ca-certificates;
+if readlink /etc/resolv.conf; then
+    RESOLV_PATH=$(readlink /etc/resolv.conf);
+    TEMP_DIR=/tmp/zypperoni/{uuid}"$(dirname "$RESOLV_PATH")";
+    mkdir -p "$TEMP_DIR";
+    cat "$RESOLV_PATH" > "$TEMP_DIR"/"$(basename "$RESOLV_PATH")";
+fi;
 mount -o bind,ro / /tmp/zypperoni/{uuid}/rootfs;
 mount -o bind /tmp/zypperoni/{uuid}/run /tmp/zypperoni/{uuid}/rootfs/run;
 mount -o bind /tmp/zypperoni/{uuid}/var /tmp/zypperoni/{uuid}/rootfs/var;
@@ -308,7 +320,8 @@ if os.getuid() != 0:
     sys.exit(3)
 
 # Bail out if required dependecies are not available
-programs = ["zypper", "echo", "ps", "sed", "awk", "mkdir", "mount", "chroot", "umount", "sleep", "rm", "env", "findmnt"]
+programs = ["zypper", "echo", "ps", "sed", "awk", "mkdir", "cat", "dirname", "basename", \
+            "readlink", "mount", "chroot", "umount", "sleep", "rm", "env", "findmnt"]
 for program in programs:
     if not shell_exec(f"command -v {program}"):
         logging.error(f"Bailing out, missing required dependecy {program!r} in PATH ({os.environ.get('PATH')}) " \
