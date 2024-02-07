@@ -108,16 +108,25 @@ def release_zypp_lock():
     os.system(f"echo -n > {ZYPPER_PID_FILE}")
     return True
 
-# Function to unmount list of dirs
-def unmount(dirs):
-    for dir in dirs:
-        if os.path.isdir(dir):
-            while True:
-                os.system(f"umount {dir} > /dev/null 2>&1")
-                ret_code = os.system(f"findmnt {dir} > /dev/null 2>&1")
-                if ret_code != 0:
-                    break
-                time.sleep(0.01)
+# Function to unmount temp dirs provided list of UUIDs
+def unmount(UUID):
+    umount_counter = 0
+    while umount_counter < len(UUID):
+        umount_counter = 0
+        for uuid in UUID:
+            UMNT_OK = True
+            if os.path.isdir(f"/tmp/zypperoni/{uuid}/rootfs"):
+                dirs = umount_dirs.format(uuid=uuid)
+                dirs = dirs.strip().split("\n")
+                for dir in dirs:
+                    findmnt_cmd = f"findmnt {dir} > /dev/null 2>&1"
+                    umount_cmd = f"umount {dir} > /dev/null 2>&1"
+                    if os.system(findmnt_cmd) == 0:
+                        os.system(umount_cmd)
+                        if os.system(findmnt_cmd) == 0:
+                            UMNT_OK = False
+            umount_counter += 1 if UMNT_OK else 0
+        time.sleep(0.01)
 
 # Function to recursively delete temp files
 def recursive_delete(path):
@@ -254,12 +263,7 @@ async def main_task(num_jobs, task_type, task_items):
     finally:
         # cleanup temp mounts
         logging.info("Cleaning up temp mounts...")
-        for uuid in UUID_UNCHANGED:
-            temp_dir = f"/tmp/zypperoni/{uuid}/rootfs"
-            if os.path.isdir(temp_dir):
-                dirs = umount_dirs.format(uuid=uuid)
-                dirs = dirs.strip().split("\n")
-                unmount(dirs)
+        unmount(UUID_UNCHANGED.copy())
         # cleanup temp dir
         logging.info("Cleaning up temp directory...")
         recursive_delete("/tmp/zypperoni")
@@ -363,15 +367,15 @@ elif ACTION == "dup-download":
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
     for item in docroot.iter('install-summary'):
-        download_size_bytes = item.attrib["download-size"]
-        num_pkgs = item.attrib["packages-to-change"]
+        download_size_bytes = float(item.attrib["download-size"])
+        num_pkgs = int(item.attrib["packages-to-change"])
         logging.info(f"Number of packages to download: {num_pkgs}")
-        logging.info(f"Total download size: {float(download_size_bytes)/1000**2:.2f} MB")
+        logging.info(f"Total download size: {download_size_bytes/1000**2:.2f} MB")
     for item in docroot.iter("solvable"):
         if item.attrib["type"] == "package":
             DUP_PKG.append(item.attrib["name"])
     logging.debug(f"Packages to download: {DUP_PKG}")
-    if not DUP_PKG:
+    if not DUP_PKG or download_size_bytes == 0:
         logging.info("Nothing to do. Exiting...")
         release_zypp_lock()
         sys.exit()
