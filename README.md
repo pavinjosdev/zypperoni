@@ -34,8 +34,9 @@ Options:
 
 ## Performance tests
 
-Tested with `4 CPU / 4GB RAM / 200 Mbps network` VM running fresh installation of Tumbleweed `20240116` on 2024-02-07 using default settings.
-Repos enabled: repo-oss, repo-non-oss, repo-update, repo-openh264, google-chrome (external).
+Tested on VM running fresh installation of Tumbleweed `20240116` on 2024-02-07 using default settings.
+- VM specs: 4 CPU, 4GB RAM, 200 Mbps bandwidth, 200ms latency to default mirror.
+- Repos enabled: repo-oss, repo-non-oss, repo-update, repo-openh264, google-chrome (external).
 
 | Test                          | zypper    | zypperoni (10 jobs) | zypperoni (20 jobs) |
 |-------------------------------|-----------|---------------------|---------------------|
@@ -58,3 +59,24 @@ Should the worst happen and zypperoni somehow messes up, it's very simple to cle
 sudo rm -rI /var/cache/zypp
 sudo zypper refresh --force
 ```
+
+## Optional changes
+
+1. For faster connections to the official openSUSE repos without hardcoding it to a local mirror, change the repo URLs from `download.opensuse.org` to `cdn.opensuse.org`. The `.repo` config files are located in the directory `/etc/zypp/repos.d`. Run `zypperoni refresh` after the update.
+
+2. Use bash aliases to run zypperoni commands less verbosely. For example, add the following aliases to your `~/.bashrc` file and run `source ~/.bashrc` to apply it:
+```
+# Zypperoni refresh
+alias zref='sudo zypperoni refresh'
+# Zypperoni download
+alias zdown='sudo zypperoni dup-download'
+```
+
+Now you can use `zref` and `zdown` to refresh repos and download packages respectively.
+
+## Known issues
+
+Generally, zypperoni should work out of the box with the default zypp and zypper configs.
+Custom or experimental configs may result in bugs.
+
+1. Using the experimental option `techpreview.ZYPP_SINGLE_RPMTRANS=1` in `zypp.conf` would result in `zypperoni dup-download` appearing to hang indefinitely, but in reality zypper is doing its sequential download in the background even though `zypperoni` specifies the `--dry-run` option when invoking it. If you would like to use this feature, do not add the option in `zypp.conf` but pass it as an environment variable: `sudo env ZYPP_SINGLE_RPMTRANS=1 zypper dup`.
