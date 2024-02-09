@@ -27,7 +27,7 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "0.2.1"
+ZYPPERONI_VERSION = "0.2.2"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 VALID_CMD = ["ref", "force-ref", "in", "in-download", "dup", "dup-download", "inr", "inr-download"]
 VALID_OPT = ["--debug", "--help", "--version", "--no-confirm", "--max-jobs"]
@@ -488,7 +488,7 @@ elif COMMAND in ["dup", "dup-download"]:
                 RM_PKG.append(solv.get("name"))
     DUP_PKG = list( set(DUP_PKG) - set(RM_PKG) )
     DUP_PKG.sort()
-    logging.debug(f"Packages to download: {DUP_PKG}")
+    logging.info(f"Packages to download: {' '.join(DUP_PKG)}")
     if not DUP_PKG:
         logging.info("Nothing to do. Exiting...")
         release_zypp_lock()
@@ -550,7 +550,7 @@ elif COMMAND in ["in", "in-download"]:
                 RM_PKG.append(solv.get("name"))
     IN_PKG = list( set(IN_PKG) - set(RM_PKG) )
     IN_PKG.sort()
-    logging.debug(f"Packages to download: {IN_PKG}")
+    logging.info(f"Packages to download: {' '.join(IN_PKG)}")
     if not IN_PKG:
         logging.info("Nothing to do. Exiting...")
         release_zypp_lock()
@@ -603,7 +603,7 @@ elif COMMAND in ["inr", "inr-download"]:
                 RM_PKG.append(solv.get("name"))
     INR_PKG = list( set(INR_PKG) - set(RM_PKG) )
     INR_PKG.sort()
-    logging.debug(f"Packages to download: {INR_PKG}")
+    logging.info(f"Packages to download: {' '.join(INR_PKG)}")
     if not INR_PKG:
         logging.info("Nothing to do. Exiting...")
         release_zypp_lock()
