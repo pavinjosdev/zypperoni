@@ -488,7 +488,6 @@ elif COMMAND in ["dup", "dup-download"]:
                 RM_PKG.append(solv.get("name"))
     DUP_PKG = list( set(DUP_PKG) - set(RM_PKG) )
     DUP_PKG.sort()
-    logging.info(f"Packages to download: {' '.join(DUP_PKG)}")
     if not DUP_PKG:
         logging.info("Nothing to do. Exiting...")
         release_zypp_lock()
@@ -505,6 +504,7 @@ elif COMMAND in ["dup", "dup-download"]:
         command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} dist-upgrade"
         os.system(command)
         sys.exit()
+    logging.info(f"Packages to download: {' '.join(DUP_PKG)}")
     if not NO_CONFIRM and not query_yes_no("Would you like to continue?", default="yes"):
         sys.exit()
     try:
@@ -550,7 +550,6 @@ elif COMMAND in ["in", "in-download"]:
                 RM_PKG.append(solv.get("name"))
     IN_PKG = list( set(IN_PKG) - set(RM_PKG) )
     IN_PKG.sort()
-    logging.info(f"Packages to download: {' '.join(IN_PKG)}")
     if not IN_PKG:
         logging.info("Nothing to do. Exiting...")
         release_zypp_lock()
@@ -567,6 +566,7 @@ elif COMMAND in ["in", "in-download"]:
         command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} install {' '.join(ARG)}"
         os.system(command)
         sys.exit()
+    logging.info(f"Packages to download: {' '.join(IN_PKG)}")
     if not NO_CONFIRM and not query_yes_no("Would you like to continue?", default="yes"):
         sys.exit()
     try:
@@ -603,7 +603,6 @@ elif COMMAND in ["inr", "inr-download"]:
                 RM_PKG.append(solv.get("name"))
     INR_PKG = list( set(INR_PKG) - set(RM_PKG) )
     INR_PKG.sort()
-    logging.info(f"Packages to download: {' '.join(INR_PKG)}")
     if not INR_PKG:
         logging.info("Nothing to do. Exiting...")
         release_zypp_lock()
@@ -620,6 +619,7 @@ elif COMMAND in ["inr", "inr-download"]:
         command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} install-new-recommends"
         os.system(command)
         sys.exit()
+    logging.info(f"Packages to download: {' '.join(INR_PKG)}")
     if not NO_CONFIRM and not query_yes_no("Would you like to continue?", default="yes"):
         sys.exit()
     try:
