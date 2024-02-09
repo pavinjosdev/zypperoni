@@ -28,22 +28,33 @@ import xml.etree.ElementTree as ET
 
 # Constants
 ZYPPER_PID_FILE = "/run/zypp.pid"
+VALID_CMD = ["ref", "force-ref", "in", "in-download", "dup", "dup-download", "inr", "inr-download"]
+VALID_OPT = ["--debug", "--help", "--no-confirm", "--max-jobs"]
 
 # Command help/usage info
 help_text = """
 Usage: zypperoni [options] command
+       zypperoni [options] in pkg1 [pkg2 ...]
+       zypperoni [options] in-download pkg1 [pkg2 ...]
 
 zypperoni provides parallel operations
 for zypper's oft-used time consuming commands.
 
 Commands:
-  refresh - Refresh all enabled repos
-  force-refresh - Force refresh all enabled repos
-  dup-download - Download all packages required for distribution upgrade
+  ref           - Refresh all enabled repos
+  force-ref     - Force refresh all enabled repos
+  in            - Install packages
+  in-download   - Download packages for later installation
+  dup           - Perform distribution upgrade
+  dup-download  - Download packages required for distribution upgrade
+  inr           - Install new packages recommended by already installed ones
+  inr-download  - Download new packages recommended by already installed ones
 
 Options:
-  --debug - Enable debug output
-  --max-jobs - Maximum number of parallel operations [default: 10 / max: 20]
+  --debug       - Enable debug output
+  --help        - Print this help and exit
+  --no-confirm  - Automatic yes to prompts, run non-interactively
+  --max-jobs    - Maximum number of parallel operations [default: 10 / max: 20]
 """
 
 # Shell commands to prepare temp mounts for zypper refresh
@@ -109,6 +120,27 @@ umount_dirs = """
 
 ################################
 
+# Function to query user for yes or no
+def query_yes_no(question, default=None):
+    valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
+    if default is None:
+        prompt = " [y/n]: "
+    elif default == "yes":
+        prompt = " [Y/n]: "
+    elif default == "no":
+        prompt = " [y/N]: "
+    else:
+        raise ValueError(f"Invalid default answer: {default!r}")
+    while True:
+        sys.stdout.write(question + prompt)
+        choice = input().lower()
+        if default is not None and choice == "":
+            return valid[default]
+        elif choice in valid:
+            return valid[choice]
+        else:
+            sys.stdout.write("Please respond with 'yes' or 'no' (or 'y' or 'n').\n")
+
 # Function to take exclusive control of future zypper invokations
 def get_zypp_lock():
     our_pid = os.getpid()
@@ -163,7 +195,7 @@ async def zypper_task(lock, UUID, task_type, task_item, total_items, item_counte
         log_messages = {}
         commands = ""
         temp_dir = f"/tmp/zypperoni/{uuid}/rootfs"
-        if task_type == "refresh":
+        if task_type == "ref":
             log_messages.update({"start": f"Refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
             log_messages.update({"success": f"Successfully refreshed repo {task_item!r}"})
             log_messages.update({"error": f"Error refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
@@ -181,7 +213,7 @@ async def zypper_task(lock, UUID, task_type, task_item, total_items, item_counte
                     refresh_type="refresh",
                     repo_alias=task_item,
                 )
-        elif task_type == "force-refresh":
+        elif task_type == "force-ref":
             log_messages.update({"start": f"Force refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
             log_messages.update({"success": f"Successfully force refreshed repo {task_item!r}"})
             log_messages.update({"error": f"Error force refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
@@ -199,7 +231,7 @@ async def zypper_task(lock, UUID, task_type, task_item, total_items, item_counte
                     refresh_type="refresh --force",
                     repo_alias=task_item,
                 )
-        elif task_type == "dup-download":
+        elif task_type in ["dup", "dup-download", "in", "in-download", "inr", "inr-download"]:
             log_messages.update({"start": f"Downloading package [{item_counter}/{total_items}] {task_item!r}"})
             log_messages.update({"success": f"Successfully downloaded package {task_item!r}"})
             log_messages.update({"error": f"Error downloading package [{item_counter}/{total_items}] {task_item!r}"})
@@ -236,12 +268,15 @@ async def zypper_task(lock, UUID, task_type, task_item, total_items, item_counte
         logging.debug(log_messages.get("exception"))
 
 # Async function to perform multiple tasks concurrently
-async def main_task(num_jobs, task_type, task_items):
+async def main_task(num_jobs, task_type, task_items, no_confirm=None):
+    EXCEPTION_OCCUR = False
     # init array of temp dir UUIDs corresponding to max num of jobs
     UUID = [f"{uuid4()!s}" for _ in range(num_jobs)]
     UUID_UNCHANGED = UUID.copy()
     total_items = len(task_items)
     item_counter = 0
+    if task_type == "in":
+        install_pkgs = task_items.copy()
     try:
         # start processing tasks
         lock = asyncio.Lock()
@@ -252,11 +287,11 @@ async def main_task(num_jobs, task_type, task_items):
             log_messages = {}
             task_item = task_items.pop(0)
             item_counter += 1
-            if task_type == "refresh":
+            if task_type == "ref":
                 log_messages.update({"exception": "Received SIGINT while processing tasks to refresh repo"})
-            elif task_type == "force-refresh":
+            elif task_type == "force-ref":
                 log_messages.update({"exception": "Received SIGINT while processing tasks to force refresh repo"})
-            elif task_type == "dup-download":
+            elif task_type in ["dup", "dup-download", "in", "in-download", "inr", "inr-download"]:
                 log_messages.update({"exception": "Received SIGINT while processing tasks to download packages"})
             asyncio.create_task(zypper_task(lock, UUID, task_type, task_item, total_items, item_counter))
             await asyncio.sleep(0.1)
@@ -267,6 +302,7 @@ async def main_task(num_jobs, task_type, task_items):
             tasks = asyncio.all_tasks()
             await asyncio.sleep(0.1)
     except asyncio.exceptions.CancelledError:
+        EXCEPTION_OCCUR = True
         logging.debug(log_messages.get("exception"))
         logging.info("Cancelling pending tasks...")
         for task in asyncio.all_tasks():
@@ -281,19 +317,64 @@ async def main_task(num_jobs, task_type, task_items):
         recursive_delete("/tmp/zypperoni")
         # release zypper exclusive lock
         release_zypp_lock()
+        # perform additional zypper commands (if any) on no exception
+        if not EXCEPTION_OCCUR:
+            msg = "Zypperoni has finished its tasks. Handing you over to zypper..."
+            if task_type == "dup":
+                logging.info(msg)
+                command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} dist-upgrade"
+                os.system(command)
+            elif task_type == "in":
+                logging.info(msg)
+                command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} install {' '.join(install_pkgs)}"
+                os.system(command)
+            elif task_type == "inr":
+                logging.info(msg)
+                command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} install-new-recommends"
+                os.system(command)
 
 ################################
 
-# Get argument
-ACTION = sys.argv.pop()
-if ACTION not in ["refresh", "force-refresh", "dup-download"]:
+# Parse command, options, and args
+COMMAND = ""
+OPT = []
+ARG = []
+for index, item in enumerate(sys.argv):
+    if index == 0:
+        continue
+    if item in VALID_OPT:
+        OPT.append(item)
+    if item in VALID_CMD:
+        COMMAND = item
+        ARG = sys.argv[index+1:]
+        break
+
+# Print help
+if "--help" in OPT:
+    print(help_text.strip())
+    sys.exit()
+
+# Validate command
+if not COMMAND:
+    print("No valid command provided. See usage below.\n")
+    print(help_text.strip())
+    sys.exit(1)
+if COMMAND in ["in", "in-download"] and not ARG:
+    print(f"No arguments (packages) provided for command {COMMAND!r}. See usage below.\n")
     print(help_text.strip())
     sys.exit(1)
 
-# Get options
-DEBUG = True if "--debug" in sys.argv else False
+# Validate options
+for opt in OPT:
+    if opt not in VALID_OPT:
+        print(f"Invalid option {opt!r}. See usage below.\n")
+        print(help_text.strip())
+        sys.exit(1)
+
+DEBUG = True if "--debug" in OPT else False
+NO_CONFIRM = True if "--no-confirm" in OPT else False
 MAX_JOBS = 10
-if "--max-jobs" in sys.argv:
+if "--max-jobs" in OPT:
     try:
         num_jobs = int(sys.argv[sys.argv.index("--max-jobs") + 1])
         if num_jobs in range(1, 21):
@@ -301,11 +382,12 @@ if "--max-jobs" in sys.argv:
         else:
             raise ValueError
     except ValueError:
-        print("Invalid value for option '--max-jobs'")
+        print("Invalid value for option '--max-jobs'. Must be between 1 to 20 (inclusive)")
         sys.exit(2)
     except IndexError:
         print("No value provided for option '--max-jobs'")
         sys.exit(2)
+
 
 # Setup logging
 logging.basicConfig(
@@ -348,8 +430,8 @@ if os.path.isfile(ZYPPER_PID_FILE):
                 logging.error(msg)
                 sys.exit(5)
 
-# Handle actions: refresh, force-refresh
-if ACTION in ["refresh", "force-refresh"]:
+# Handle commands: ref, force-ref
+if COMMAND in ["ref", "force-ref"]:
     # get all enabled repos
     logging.info("Getting all enabled repos")
     REPO_ALIAS = []
@@ -365,35 +447,174 @@ if ACTION in ["refresh", "force-refresh"]:
         release_zypp_lock()
         sys.exit()
     try:
-        asyncio.run(main_task(MAX_JOBS, ACTION, REPO_ALIAS))
+        asyncio.run(main_task(MAX_JOBS, COMMAND, REPO_ALIAS))
     except asyncio.exceptions.CancelledError:
         logging.debug("Received SIGINT for asyncio runner")
     except:
         logging.exception("Unknown exception for asyncio runner")
 
-# Handle action: download
-elif ACTION == "dup-download":
-    # get all packages to be downloaded
-    logging.info("Getting all packages to be downloaded")
-    DUP_PKG = []
+# Handle commands: dup, dup-download
+elif COMMAND in ["dup", "dup-download"]:
+    # get info about dup packages
+    logging.info("Getting all packages to be downloaded for distribution upgrade")
     xml_output = shell_exec("env -i zypper --non-interactive --xmlout dist-upgrade --dry-run")
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
     for item in docroot.iter('install-summary'):
         download_size_bytes = float(item.attrib["download-size"])
+        diff_bytes = float(item.attrib["space-usage-diff"])
         num_pkgs = int(item.attrib["packages-to-change"])
         logging.info(f"Number of packages to download: {num_pkgs}")
         logging.info(f"Total download size: {download_size_bytes/1000**2:.2f} MB")
+        if COMMAND == "dup":
+            logging.info(f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB")
+    # parse all packages from xml output
+    DUP_PKG = []
     for item in docroot.iter("solvable"):
         if item.attrib["type"] == "package":
             DUP_PKG.append(item.attrib["name"])
+    # parse all packages to be removed
+    RM_PKG = []
+    for rm in docroot.iter("to-remove"):
+        for solv in rm.findall("solvable"):
+            if solv.get("type") == "package":
+                RM_PKG.append(solv.get("name"))
+    DUP_PKG = list( set(DUP_PKG) - set(RM_PKG) )
+    DUP_PKG.sort()
     logging.debug(f"Packages to download: {DUP_PKG}")
-    if not DUP_PKG or download_size_bytes == 0:
+    if not DUP_PKG:
         logging.info("Nothing to do. Exiting...")
         release_zypp_lock()
         sys.exit()
+    # do not download if all packages are already in cache
+    if COMMAND == "dup-download" and download_size_bytes == 0:
+        logging.info("Nothing to do. Exiting...")
+        release_zypp_lock()
+        sys.exit()
+    # proceed straight to dup if all packages are in cache
+    if COMMAND == "dup" and download_size_bytes == 0:
+        release_zypp_lock()
+        logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
+        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} dist-upgrade"
+        os.system(command)
+        sys.exit()
+    if not NO_CONFIRM and not query_yes_no("Would you like to continue?", default="yes"):
+        sys.exit()
     try:
-        asyncio.run(main_task(MAX_JOBS, ACTION, DUP_PKG))
+        asyncio.run(main_task(MAX_JOBS, COMMAND, DUP_PKG, NO_CONFIRM))
+    except asyncio.exceptions.CancelledError:
+        logging.debug("Received SIGINT for asyncio runner")
+    except:
+        logging.exception("Unknown exception for asyncio runner")
+
+# Handle commands: in, in-download
+elif COMMAND in ["in", "in-download"]:
+    # get info about install packages
+    logging.info("Getting packages and its dependecies to be downloaded for installation")
+    xml_output = shell_exec(f"env -i zypper --non-interactive --xmlout install --dry-run {' '.join(ARG)}")
+    get_zypp_lock()
+    docroot = ET.fromstring(xml_output)
+    NO_ERR = False
+    for item in docroot.iter('install-summary'):
+        download_size_bytes = float(item.attrib["download-size"])
+        diff_bytes = float(item.attrib["space-usage-diff"])
+        num_pkgs = int(item.attrib["packages-to-change"])
+        logging.info(f"Number of packages to download: {num_pkgs}")
+        logging.info(f"Total download size: {download_size_bytes/1000**2:.2f} MB")
+        logging.info(f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB")
+        NO_ERR = True
+    if not NO_ERR:
+        friendly_output = ""
+        for item in docroot.iter("message"):
+            friendly_output += item.text + "\n"
+        logging.error(f"There was an error processing your request. [zypper output]\n{friendly_output.strip()}")
+    # parse all packages from xml output
+    IN_PKG = []
+    for item in docroot.iter("solvable"):
+        if item.attrib["type"] == "package":
+            IN_PKG.append(item.attrib["name"])
+    # parse all packages to be removed
+    RM_PKG = []
+    for rm in docroot.iter("to-remove"):
+        for solv in rm.findall("solvable"):
+            if solv.get("type") == "package":
+                RM_PKG.append(solv.get("name"))
+    IN_PKG = list( set(IN_PKG) - set(RM_PKG) )
+    IN_PKG.sort()
+    logging.debug(f"Packages to download: {IN_PKG}")
+    if not IN_PKG:
+        logging.info("Nothing to do. Exiting...")
+        release_zypp_lock()
+        sys.exit()
+    # do not download if all packages are already in cache
+    if COMMAND == "in-download" and download_size_bytes == 0:
+        logging.info("Nothing to do. Exiting...")
+        release_zypp_lock()
+        sys.exit()
+    # proceed straight to install if all packages are in cache
+    if COMMAND == "in" and download_size_bytes == 0:
+        release_zypp_lock()
+        logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
+        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} install {' '.join(ARG)}"
+        os.system(command)
+        sys.exit()
+    if not NO_CONFIRM and not query_yes_no("Would you like to continue?", default="yes"):
+        sys.exit()
+    try:
+        asyncio.run(main_task(MAX_JOBS, COMMAND, IN_PKG, NO_CONFIRM))
+    except asyncio.exceptions.CancelledError:
+        logging.debug("Received SIGINT for asyncio runner")
+    except:
+        logging.exception("Unknown exception for asyncio runner")
+
+# Handle commands: inr, inr-download
+elif COMMAND in ["inr", "inr-download"]:
+    # get info about recommended install packages
+    logging.info("Getting new packages and its dependecies to be downloaded for recommended installation")
+    xml_output = shell_exec(f"env -i zypper --non-interactive --xmlout install-new-recommends --dry-run")
+    get_zypp_lock()
+    docroot = ET.fromstring(xml_output)
+    for item in docroot.iter('install-summary'):
+        download_size_bytes = float(item.attrib["download-size"])
+        diff_bytes = float(item.attrib["space-usage-diff"])
+        num_pkgs = int(item.attrib["packages-to-change"])
+        logging.info(f"Number of packages to download: {num_pkgs}")
+        logging.info(f"Total download size: {download_size_bytes/1000**2:.2f} MB")
+        logging.info(f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB")
+    # parse all packages from xml output
+    INR_PKG = []
+    for item in docroot.iter("solvable"):
+        if item.attrib["type"] == "package":
+            INR_PKG.append(item.attrib["name"])
+    # parse all packages to be removed
+    RM_PKG = []
+    for rm in docroot.iter("to-remove"):
+        for solv in rm.findall("solvable"):
+            if solv.get("type") == "package":
+                RM_PKG.append(solv.get("name"))
+    INR_PKG = list( set(INR_PKG) - set(RM_PKG) )
+    INR_PKG.sort()
+    logging.debug(f"Packages to download: {INR_PKG}")
+    if not INR_PKG:
+        logging.info("Nothing to do. Exiting...")
+        release_zypp_lock()
+        sys.exit()
+    # do not download if all packages are already in cache
+    if COMMAND == "inr-download" and download_size_bytes == 0:
+        logging.info("Nothing to do. Exiting...")
+        release_zypp_lock()
+        sys.exit()
+    # proceed straight to inr if all packages are in cache
+    if COMMAND == "inr" and download_size_bytes == 0:
+        release_zypp_lock()
+        logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
+        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} install-new-recommends"
+        os.system(command)
+        sys.exit()
+    if not NO_CONFIRM and not query_yes_no("Would you like to continue?", default="yes"):
+        sys.exit()
+    try:
+        asyncio.run(main_task(MAX_JOBS, COMMAND, INR_PKG, NO_CONFIRM))
     except asyncio.exceptions.CancelledError:
         logging.debug("Received SIGINT for asyncio runner")
     except:
