@@ -2,34 +2,44 @@
 Speed up [openSUSE's](https://en.wikipedia.org/wiki/OpenSUSE) package manager [zypper's](https://en.wikipedia.org/wiki/ZYpp) refresh and download commands.
 
 ## Synopsis
-Zypperoni (a portmanteau of zypper and pepperoni 🍕) is a single page python program without any external dependencies that can be used to massively speed up
-zypper's most used and time consuming commands, namely repository refreshing and downloading packages.
-It does this by using well-known async and chroot concepts to safely parallelize what would otherwise be a tedious sequential task.
+Zypperoni (a portmanteau of zypper and pepperoni 🍕) is a simple single file program without any external dependencies that can be used to massively speed up zypper's most used and time consuming commands.
+
+Zypperoni uses various techniques to safely group together zypper operations where possible in an async manner and does not by itself make any changes to your configs or system, making it suitable for production use.
 
 ## Installation
+
 ```
-git clone https://github.com/pavinjosdev/zypperoni.git
-chmod 755 zypperoni/zypperoni
-sudo cp zypperoni/zypperoni /usr/bin
+curl https://raw.githubusercontent.com/pavinjosdev/zypperoni/main/zypperoni | sudo tee /usr/bin/zypperoni > /dev/null
+sudo chmod 755 /usr/bin/zypperoni
 ```
 
 ## Usage
-Type in `zypperoni` without any arguments for help.
+Type in `zypperoni --help` for usage help.
 
 ```
 Usage: zypperoni [options] command
+       zypperoni [options] in pkg1 [pkg2 ...]
+       zypperoni [options] in-download pkg1 [pkg2 ...]
 
 zypperoni provides parallel operations
 for zypper's oft-used time consuming commands.
 
 Commands:
-  refresh - Refresh all enabled repos
-  force-refresh - Force refresh all enabled repos
-  dup-download - Download all packages required for distribution upgrade
+  ref           - Refresh all enabled repos
+  force-ref     - Force refresh all enabled repos
+  in            - Install packages
+  in-download   - Download packages for later installation
+  dup           - Perform distribution upgrade
+  dup-download  - Download packages required for distribution upgrade
+  inr           - Install new packages recommended by already installed ones
+  inr-download  - Download new packages recommended by already installed ones
 
 Options:
-  --debug - Enable debug output
-  --max-jobs - Maximum number of parallel operations [default: 10 / max: 20]
+  --debug       - Enable debug output
+  --help        - Print this help and exit
+  --no-confirm  - Automatic yes to prompts, run non-interactively
+  --max-jobs    - Maximum number of parallel operations [default: 10 / max: 20]
+
 ```
 
 ## Performance tests
@@ -54,7 +64,7 @@ Specify the `--debug` option for troubleshooting.
 Zypperoni is intended to catch SIGINT (Ctrl+C) and properly cleanup.
 If for some reason it does not cleanup such as when receiving SIGTERM or SIGKILL, future operations should not be affected.
 Zypperoni keeps its working directory in `/tmp/zypperoni`, so a reboot would always cleanup.
-Should the worst happen and zypperoni somehow messes up, it's very simple to clear whatever it has done wrong by doing:
+Should zypperoni somehow mess up, it's very simple to clear whatever it has done wrong by doing:
 ```
 sudo rm -rI /var/cache/zypp
 sudo zypper refresh --force
@@ -62,21 +72,19 @@ sudo zypper refresh --force
 
 ## Optional changes
 
-1. For faster connections to the official openSUSE repos without hardcoding it to a local mirror, change the repo URLs from `download.opensuse.org` to `cdn.opensuse.org`. The `.repo` config files are located in the directory `/etc/zypp/repos.d`. Run `zypperoni refresh` after the update.
+1. For faster connections to the official openSUSE repos without hardcoding it to a local mirror, change the repo URLs from `download.opensuse.org` to `cdn.opensuse.org`. The `.repo` config files are located in the directory `/etc/zypp/repos.d`. Run `zypperoni ref` after the update.
 
 2. Use bash aliases to run zypperoni commands less verbosely. For example, add the following aliases to your `~/.bashrc` file and run `source ~/.bashrc` to apply it:
 ```
-# Zypperoni refresh
-alias zref='sudo zypperoni refresh'
-# Zypperoni download
-alias zdown='sudo zypperoni dup-download'
+# Zypperoni alias
+alias z='sudo zypperoni'
 ```
 
-Now you can use `zref` and `zdown` to refresh repos and download packages respectively.
+Now you can use `z ref` and `z dup` to refresh repos and perform distribution upgrade respectively.
 
 ## Known issues
 
 Generally, zypperoni should work out of the box with the default zypp and zypper configs.
 Custom or experimental configs may result in bugs.
 
-1. Using the experimental option `techpreview.ZYPP_SINGLE_RPMTRANS=1` in `zypp.conf` would result in `zypperoni dup-download` appearing to hang indefinitely, but in reality zypper is doing its sequential download in the background even though `zypperoni` specifies the `--dry-run` option when invoking it. If you would like to use this feature, do not add the option in `zypp.conf` but pass it as an environment variable: `sudo env ZYPP_SINGLE_RPMTRANS=1 zypper dup`.
+- Using the experimental option `techpreview.ZYPP_SINGLE_RPMTRANS=1` in `zypp.conf` would result in `zypperoni dup-download` appearing to hang indefinitely, but in reality zypper is doing its sequential download in the background due to RPM single transaction requirements. This config is not necessary when using zypperoni as it passes `ZYPP_SINGLE_RPMTRANS=1` as an environment variable when calling zypper.
