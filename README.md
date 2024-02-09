@@ -1,5 +1,5 @@
 # zypperoni
-Speed up [openSUSE's](https://en.wikipedia.org/wiki/OpenSUSE) package manager [zypper's](https://en.wikipedia.org/wiki/ZYpp) refresh and download commands.
+Speed up [openSUSE's](https://en.wikipedia.org/wiki/OpenSUSE) package manager [zypper](https://en.wikipedia.org/wiki/ZYpp).
 
 ## Synopsis
 Zypperoni (a portmanteau of zypper and pepperoni 🍕) is a simple single file program without any external dependencies that can be used to massively speed up zypper's most used and time consuming commands.
