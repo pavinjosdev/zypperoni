@@ -9,7 +9,7 @@ Zypperoni uses various techniques to safely group together zypper operations whe
 ## Installation
 
 ```
-curl https://raw.githubusercontent.com/pavinjosdev/zypperoni/main/zypperoni | sudo tee /usr/bin/zypperoni > /dev/null
+curl -s https://raw.githubusercontent.com/pavinjosdev/zypperoni/main/zypperoni | sudo tee /usr/bin/zypperoni > /dev/null
 sudo chmod 755 /usr/bin/zypperoni
 ```
 
