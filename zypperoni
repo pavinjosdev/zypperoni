@@ -527,7 +527,9 @@ elif COMMAND in ["in", "in-download"]:
         friendly_output = ""
         for item in docroot.iter("message"):
             friendly_output += item.text + "\n"
-        logging.error(f"There was an error processing your request. [zypper output]\n{friendly_output.strip()}")
+        logging.error(f"There was an error processing your request.\n[zypper output]\n{friendly_output.strip()}")
+        release_zypp_lock()
+        sys.exit(6)
     # parse all packages from xml output
     IN_PKG = []
     for item in docroot.iter("solvable"):
