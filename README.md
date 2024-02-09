@@ -37,9 +37,9 @@ Commands:
 Options:
   --debug       - Enable debug output
   --help        - Print this help and exit
+  --version     - Print version number and exit
   --no-confirm  - Automatic yes to prompts, run non-interactively
   --max-jobs    - Maximum number of parallel operations [default: 10 / max: 20]
-
 ```
 
 ## Performance tests
