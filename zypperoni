@@ -27,7 +27,7 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "0.2.2"
+ZYPPERONI_VERSION = "0.2.3"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 VALID_CMD = ["ref", "force-ref", "in", "in-download", "dup", "dup-download", "inr", "inr-download"]
 VALID_OPT = ["--debug", "--help", "--version", "--no-confirm", "--max-jobs"]
@@ -436,6 +436,17 @@ if os.path.isfile(ZYPPER_PID_FILE):
                 "Close this application before trying again."
                 logging.error(msg)
                 sys.exit(5)
+
+# Create and secure temp dir
+tmp_dir = "/tmp/zypperoni"
+if os.path.exists(tmp_dir):
+    os.rename(tmp_dir, f"{tmp_dir}.{int(time.time())}.broken")
+else:
+    commands = f"""
+mkdir -p {tmp_dir};
+chmod 700 {tmp_dir};
+"""
+    shell_exec(commands)
 
 # Handle commands: ref, force-ref
 if COMMAND in ["ref", "force-ref"]:
