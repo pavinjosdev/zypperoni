@@ -27,7 +27,8 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "0.2.3"
+ZYPPERONI_VERSION = "0.3.0"
+ZYPPERONI_TMP_DIR = "/tmp/zypperoni"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 VALID_CMD = ["ref", "force-ref", "in", "in-download", "dup", "dup-download", "inr", "inr-download"]
 VALID_OPT = ["--debug", "--help", "--version", "--no-confirm", "--max-jobs"]
@@ -60,64 +61,64 @@ Options:
 """
 
 # Shell commands to prepare temp mounts for zypper refresh
-refresh_mount_commands = """
-mkdir -p /tmp/zypperoni/{uuid}/rootfs;
-mkdir -p /tmp/zypperoni/{uuid}/run;
-mkdir -p /tmp/zypperoni/{uuid}/var/cache/zypp;
-mkdir -p /tmp/zypperoni/{uuid}/var/lib/ca-certificates;
+refresh_mount_commands = f"""
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs;
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/run;
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/var/cache/zypp;
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/var/lib/ca-certificates;
 if readlink /etc/resolv.conf; then
     RESOLV_PATH=$(readlink /etc/resolv.conf);
-    TEMP_DIR=/tmp/zypperoni/{uuid}"$(dirname "$RESOLV_PATH")";
+    TEMP_DIR={ZYPPERONI_TMP_DIR}/{{uuid}}"$(dirname "$RESOLV_PATH")";
     mkdir -p "$TEMP_DIR";
     cat "$RESOLV_PATH" > "$TEMP_DIR"/"$(basename "$RESOLV_PATH")";
 fi;
-mount -o bind,ro / /tmp/zypperoni/{uuid}/rootfs;
-mount -t devtmpfs none /tmp/zypperoni/{uuid}/rootfs/dev;
-mount -t tmpfs none /tmp/zypperoni/{uuid}/rootfs/tmp;
-mount -o bind /tmp/zypperoni/{uuid}/run /tmp/zypperoni/{uuid}/rootfs/run;
-mount -o bind /tmp/zypperoni/{uuid}/var /tmp/zypperoni/{uuid}/rootfs/var;
-mount -o bind /var/cache/zypp /tmp/zypperoni/{uuid}/rootfs/var/cache/zypp;
-mount -o bind,ro /var/lib/ca-certificates /tmp/zypperoni/{uuid}/rootfs/var/lib/ca-certificates;
+mount -o bind,ro / {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs;
+mount -t devtmpfs none {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/dev;
+mount -t tmpfs none {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/tmp;
+mount -o bind {ZYPPERONI_TMP_DIR}/{{uuid}}/run {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/run;
+mount -o bind {ZYPPERONI_TMP_DIR}/{{uuid}}/var {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var;
+mount -o bind /var/cache/zypp {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/cache/zypp;
+mount -o bind,ro /var/lib/ca-certificates {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/lib/ca-certificates;
 """
 
 # Shell commands to perform zypper refresh / force-refresh
-refresh_shell_commands = """
-chroot /tmp/zypperoni/{uuid}/rootfs env -i zypper --non-interactive {refresh_type} {repo_alias};
+refresh_shell_commands = f"""
+chroot {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs env -i zypper --non-interactive {{refresh_type}} {{repo_alias}};
 """
 
 # Shell commands to prepare temp mounts for zypper download
-download_mount_commands = """
-mkdir -p /tmp/zypperoni/{uuid}/rootfs;
-mkdir -p /tmp/zypperoni/{uuid}/run;
-mkdir -p /tmp/zypperoni/{uuid}/var/cache/zypp;
-mkdir -p /tmp/zypperoni/{uuid}/var/lib/ca-certificates;
+download_mount_commands = f"""
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs;
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/run;
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/var/cache/zypp;
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/var/lib/ca-certificates;
 if readlink /etc/resolv.conf; then
     RESOLV_PATH=$(readlink /etc/resolv.conf);
-    TEMP_DIR=/tmp/zypperoni/{uuid}"$(dirname "$RESOLV_PATH")";
+    TEMP_DIR={ZYPPERONI_TMP_DIR}/{{uuid}}"$(dirname "$RESOLV_PATH")";
     mkdir -p "$TEMP_DIR";
     cat "$RESOLV_PATH" > "$TEMP_DIR"/"$(basename "$RESOLV_PATH")";
 fi;
-mount -o bind,ro / /tmp/zypperoni/{uuid}/rootfs;
-mount -o bind /tmp/zypperoni/{uuid}/run /tmp/zypperoni/{uuid}/rootfs/run;
-mount -o bind /tmp/zypperoni/{uuid}/var /tmp/zypperoni/{uuid}/rootfs/var;
-mount -o bind /var/cache/zypp /tmp/zypperoni/{uuid}/rootfs/var/cache/zypp;
-mount -o bind,ro /var/lib/ca-certificates /tmp/zypperoni/{uuid}/rootfs/var/lib/ca-certificates;
+mount -o bind,ro / {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs;
+mount -o bind {ZYPPERONI_TMP_DIR}/{{uuid}}/run {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/run;
+mount -o bind {ZYPPERONI_TMP_DIR}/{{uuid}}/var {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var;
+mount -o bind /var/cache/zypp {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/cache/zypp;
+mount -o bind,ro /var/lib/ca-certificates {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/lib/ca-certificates;
 """
 
 # Shell commands to perform zypper download
-download_shell_commands = """
-chroot /tmp/zypperoni/{uuid}/rootfs env -i zypper --non-interactive download {pkg_name};
+download_shell_commands = f"""
+chroot {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs env -i zypper --non-interactive download {{pkg_name}};
 """
 
 # Dirs to unmount (one per line)
-umount_dirs = """
-/tmp/zypperoni/{uuid}/rootfs/var/lib/ca-certificates
-/tmp/zypperoni/{uuid}/rootfs/var/cache/zypp
-/tmp/zypperoni/{uuid}/rootfs/var
-/tmp/zypperoni/{uuid}/rootfs/run
-/tmp/zypperoni/{uuid}/rootfs/tmp
-/tmp/zypperoni/{uuid}/rootfs/dev
-/tmp/zypperoni/{uuid}/rootfs
+umount_dirs = f"""
+{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/lib/ca-certificates
+{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/cache/zypp
+{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var
+{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/run
+{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/tmp
+{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/dev
+{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs
 """
 
 ################################
@@ -161,7 +162,7 @@ def unmount(UUID):
         umount_counter = 0
         for uuid in UUID:
             UMNT_OK = True
-            if os.path.isdir(f"/tmp/zypperoni/{uuid}/rootfs"):
+            if os.path.isdir(f"{ZYPPERONI_TMP_DIR}/{uuid}/rootfs"):
                 dirs = umount_dirs.format(uuid=uuid)
                 dirs = dirs.strip().split("\n")
                 for dir in dirs:
@@ -177,7 +178,7 @@ def unmount(UUID):
 # Function to recursively delete temp files
 def recursive_delete(path):
     # perform some sanity checks
-    if not path.startswith("/tmp/zypperoni"):
+    if not path.startswith(ZYPPERONI_TMP_DIR):
         return False
     command = f"rm -r {quote(path)} > /dev/null 2>&1"
     os.system(command)
@@ -196,7 +197,7 @@ async def zypper_task(lock, UUID, task_type, task_item, total_items, item_counte
             uuid = UUID.pop()
         log_messages = {}
         commands = ""
-        temp_dir = f"/tmp/zypperoni/{uuid}/rootfs"
+        temp_dir = f"{ZYPPERONI_TMP_DIR}/{uuid}/rootfs"
         if task_type == "ref":
             log_messages.update({"start": f"Refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
             log_messages.update({"success": f"Successfully refreshed repo {task_item!r}"})
@@ -316,7 +317,7 @@ async def main_task(num_jobs, task_type, task_items, no_confirm=None):
         unmount(UUID_UNCHANGED.copy())
         # cleanup temp dir
         logging.info("Cleaning up temp directory...")
-        recursive_delete("/tmp/zypperoni")
+        recursive_delete(ZYPPERONI_TMP_DIR)
         # release zypper exclusive lock
         release_zypp_lock()
         # perform additional zypper commands (if any) on no exception
@@ -438,15 +439,13 @@ if os.path.isfile(ZYPPER_PID_FILE):
                 sys.exit(5)
 
 # Create and secure temp dir
-tmp_dir = "/tmp/zypperoni"
-if os.path.exists(tmp_dir):
-    os.rename(tmp_dir, f"{tmp_dir}.{int(time.time())}.broken")
-else:
-    commands = f"""
-mkdir -p {tmp_dir};
-chmod 700 {tmp_dir};
+if os.path.exists(ZYPPERONI_TMP_DIR):
+    os.rename(ZYPPERONI_TMP_DIR, f"{ZYPPERONI_TMP_DIR}.{int(time.time())}.broken")
+commands = f"""
+mkdir -p {ZYPPERONI_TMP_DIR};
+chmod 700 {ZYPPERONI_TMP_DIR};
 """
-    shell_exec(commands)
+shell_exec(commands)
 
 # Handle commands: ref, force-ref
 if COMMAND in ["ref", "force-ref"]:
@@ -463,6 +462,7 @@ if COMMAND in ["ref", "force-ref"]:
     if not REPO_ALIAS:
         logging.info("No repos found. Exiting...")
         release_zypp_lock()
+        recursive_delete(ZYPPERONI_TMP_DIR)
         sys.exit()
     try:
         asyncio.run(main_task(MAX_JOBS, COMMAND, REPO_ALIAS))
@@ -502,21 +502,26 @@ elif COMMAND in ["dup", "dup-download"]:
     if not DUP_PKG:
         logging.info("Nothing to do. Exiting...")
         release_zypp_lock()
+        recursive_delete(ZYPPERONI_TMP_DIR)
         sys.exit()
     # do not download if all packages are already in cache
     if COMMAND == "dup-download" and download_size_bytes == 0:
         logging.info("Nothing to do. Exiting...")
         release_zypp_lock()
+        recursive_delete(ZYPPERONI_TMP_DIR)
         sys.exit()
     # proceed straight to dup if all packages are in cache
     if COMMAND == "dup" and download_size_bytes == 0:
         release_zypp_lock()
+        recursive_delete(ZYPPERONI_TMP_DIR)
         logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
         command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} dist-upgrade"
         os.system(command)
         sys.exit()
     logging.info(f"Packages to download: {' '.join(DUP_PKG)}")
     if not NO_CONFIRM and not query_yes_no("Would you like to continue?", default="yes"):
+        release_zypp_lock()
+        recursive_delete(ZYPPERONI_TMP_DIR)
         sys.exit()
     try:
         asyncio.run(main_task(MAX_JOBS, COMMAND, DUP_PKG, NO_CONFIRM))
@@ -547,6 +552,7 @@ elif COMMAND in ["in", "in-download"]:
             friendly_output += item.text + "\n"
         logging.error(f"There was an error processing your request.\n[zypper output]\n{friendly_output.strip()}")
         release_zypp_lock()
+        recursive_delete(ZYPPERONI_TMP_DIR)
         sys.exit(6)
     # parse all packages from xml output
     IN_PKG = []
@@ -564,21 +570,26 @@ elif COMMAND in ["in", "in-download"]:
     if not IN_PKG:
         logging.info("Nothing to do. Exiting...")
         release_zypp_lock()
+        recursive_delete(ZYPPERONI_TMP_DIR)
         sys.exit()
     # do not download if all packages are already in cache
     if COMMAND == "in-download" and download_size_bytes == 0:
         logging.info("Nothing to do. Exiting...")
         release_zypp_lock()
+        recursive_delete(ZYPPERONI_TMP_DIR)
         sys.exit()
     # proceed straight to install if all packages are in cache
     if COMMAND == "in" and download_size_bytes == 0:
         release_zypp_lock()
+        recursive_delete(ZYPPERONI_TMP_DIR)
         logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
         command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} install {' '.join(ARG)}"
         os.system(command)
         sys.exit()
     logging.info(f"Packages to download: {' '.join(IN_PKG)}")
     if not NO_CONFIRM and not query_yes_no("Would you like to continue?", default="yes"):
+        release_zypp_lock()
+        recursive_delete(ZYPPERONI_TMP_DIR)
         sys.exit()
     try:
         asyncio.run(main_task(MAX_JOBS, COMMAND, IN_PKG, NO_CONFIRM))
@@ -617,21 +628,26 @@ elif COMMAND in ["inr", "inr-download"]:
     if not INR_PKG:
         logging.info("Nothing to do. Exiting...")
         release_zypp_lock()
+        recursive_delete(ZYPPERONI_TMP_DIR)
         sys.exit()
     # do not download if all packages are already in cache
     if COMMAND == "inr-download" and download_size_bytes == 0:
         logging.info("Nothing to do. Exiting...")
         release_zypp_lock()
+        recursive_delete(ZYPPERONI_TMP_DIR)
         sys.exit()
     # proceed straight to inr if all packages are in cache
     if COMMAND == "inr" and download_size_bytes == 0:
         release_zypp_lock()
+        recursive_delete(ZYPPERONI_TMP_DIR)
         logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
         command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} install-new-recommends"
         os.system(command)
         sys.exit()
     logging.info(f"Packages to download: {' '.join(INR_PKG)}")
     if not NO_CONFIRM and not query_yes_no("Would you like to continue?", default="yes"):
+        release_zypp_lock()
+        recursive_delete(ZYPPERONI_TMP_DIR)
         sys.exit()
     try:
         asyncio.run(main_task(MAX_JOBS, COMMAND, INR_PKG, NO_CONFIRM))
