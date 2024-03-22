@@ -184,6 +184,11 @@ def recursive_delete(path):
     os.system(command)
     return True
 
+# Function to cleanup on zypperoni exit
+def zypperoni_cleanup():
+    release_zypp_lock()
+    recursive_delete(ZYPPERONI_TMP_DIR)
+
 # Function to get output of shell command
 def shell_exec(command):
     res = subprocess.run(command, shell=True, capture_output=True, encoding="utf8", errors="replace")
@@ -461,8 +466,7 @@ if COMMAND in ["ref", "force-ref"]:
     logging.debug(f"Enabled repos: {REPO_ALIAS}")
     if not REPO_ALIAS:
         logging.info("No repos found. Exiting...")
-        release_zypp_lock()
-        recursive_delete(ZYPPERONI_TMP_DIR)
+        zypperoni_cleanup()
         sys.exit()
     try:
         asyncio.run(main_task(MAX_JOBS, COMMAND, REPO_ALIAS))
@@ -501,27 +505,23 @@ elif COMMAND in ["dup", "dup-download"]:
     DUP_PKG.sort()
     if not DUP_PKG:
         logging.info("Nothing to do. Exiting...")
-        release_zypp_lock()
-        recursive_delete(ZYPPERONI_TMP_DIR)
+        zypperoni_cleanup()
         sys.exit()
     # do not download if all packages are already in cache
     if COMMAND == "dup-download" and download_size_bytes == 0:
         logging.info("Nothing to do. Exiting...")
-        release_zypp_lock()
-        recursive_delete(ZYPPERONI_TMP_DIR)
+        zypperoni_cleanup()
         sys.exit()
     # proceed straight to dup if all packages are in cache
     if COMMAND == "dup" and download_size_bytes == 0:
-        release_zypp_lock()
-        recursive_delete(ZYPPERONI_TMP_DIR)
+        zypperoni_cleanup()
         logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
         command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} dist-upgrade"
         os.system(command)
         sys.exit()
     logging.info(f"Packages to download: {' '.join(DUP_PKG)}")
     if not NO_CONFIRM and not query_yes_no("Would you like to continue?", default="yes"):
-        release_zypp_lock()
-        recursive_delete(ZYPPERONI_TMP_DIR)
+        zypperoni_cleanup()
         sys.exit()
     try:
         asyncio.run(main_task(MAX_JOBS, COMMAND, DUP_PKG, NO_CONFIRM))
@@ -551,8 +551,7 @@ elif COMMAND in ["in", "in-download"]:
         for item in docroot.iter("message"):
             friendly_output += item.text + "\n"
         logging.error(f"There was an error processing your request.\n[zypper output]\n{friendly_output.strip()}")
-        release_zypp_lock()
-        recursive_delete(ZYPPERONI_TMP_DIR)
+        zypperoni_cleanup()
         sys.exit(6)
     # parse all packages from xml output
     IN_PKG = []
@@ -569,27 +568,23 @@ elif COMMAND in ["in", "in-download"]:
     IN_PKG.sort()
     if not IN_PKG:
         logging.info("Nothing to do. Exiting...")
-        release_zypp_lock()
-        recursive_delete(ZYPPERONI_TMP_DIR)
+        zypperoni_cleanup()
         sys.exit()
     # do not download if all packages are already in cache
     if COMMAND == "in-download" and download_size_bytes == 0:
         logging.info("Nothing to do. Exiting...")
-        release_zypp_lock()
-        recursive_delete(ZYPPERONI_TMP_DIR)
+        zypperoni_cleanup()
         sys.exit()
     # proceed straight to install if all packages are in cache
     if COMMAND == "in" and download_size_bytes == 0:
-        release_zypp_lock()
-        recursive_delete(ZYPPERONI_TMP_DIR)
+        zypperoni_cleanup()
         logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
         command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} install {' '.join(ARG)}"
         os.system(command)
         sys.exit()
     logging.info(f"Packages to download: {' '.join(IN_PKG)}")
     if not NO_CONFIRM and not query_yes_no("Would you like to continue?", default="yes"):
-        release_zypp_lock()
-        recursive_delete(ZYPPERONI_TMP_DIR)
+        zypperoni_cleanup()
         sys.exit()
     try:
         asyncio.run(main_task(MAX_JOBS, COMMAND, IN_PKG, NO_CONFIRM))
@@ -627,27 +622,23 @@ elif COMMAND in ["inr", "inr-download"]:
     INR_PKG.sort()
     if not INR_PKG:
         logging.info("Nothing to do. Exiting...")
-        release_zypp_lock()
-        recursive_delete(ZYPPERONI_TMP_DIR)
+        zypperoni_cleanup()
         sys.exit()
     # do not download if all packages are already in cache
     if COMMAND == "inr-download" and download_size_bytes == 0:
         logging.info("Nothing to do. Exiting...")
-        release_zypp_lock()
-        recursive_delete(ZYPPERONI_TMP_DIR)
+        zypperoni_cleanup()
         sys.exit()
     # proceed straight to inr if all packages are in cache
     if COMMAND == "inr" and download_size_bytes == 0:
-        release_zypp_lock()
-        recursive_delete(ZYPPERONI_TMP_DIR)
+        zypperoni_cleanup()
         logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
         command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} install-new-recommends"
         os.system(command)
         sys.exit()
     logging.info(f"Packages to download: {' '.join(INR_PKG)}")
     if not NO_CONFIRM and not query_yes_no("Would you like to continue?", default="yes"):
-        release_zypp_lock()
-        recursive_delete(ZYPPERONI_TMP_DIR)
+        zypperoni_cleanup()
         sys.exit()
     try:
         asyncio.run(main_task(MAX_JOBS, COMMAND, INR_PKG, NO_CONFIRM))
