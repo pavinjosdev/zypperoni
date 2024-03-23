@@ -1,4 +1,4 @@
-# zypperoni
+# zypperoni 🍕
 Speed up [openSUSE's](https://en.wikipedia.org/wiki/OpenSUSE) package manager [zypper](https://en.wikipedia.org/wiki/ZYpp).
 
 ## Synopsis
@@ -63,7 +63,7 @@ sudo rm /usr/bin/zypperoni
 Specify the `--debug` option for troubleshooting.
 Zypperoni is intended to catch SIGINT (Ctrl+C) and properly cleanup.
 If for some reason it does not cleanup such as when receiving SIGTERM or SIGKILL, future operations should not be affected.
-Zypperoni keeps its working directory in `/tmp/zypperoni`, so a reboot would always cleanup.
+Zypperoni keeps its working directory in `/tmp/zypperoni_*`, so a reboot would always cleanup.
 Should zypperoni somehow mess up, it's very simple to clear whatever it has done wrong by doing:
 ```
 sudo rm -rI /var/cache/zypp
