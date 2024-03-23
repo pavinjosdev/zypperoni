@@ -363,21 +363,25 @@ for index, item in enumerate(sys.argv):
 # Print help
 if "--help" in OPT:
     print(help_text.strip())
+    zypperoni_cleanup()
     sys.exit()
 
 # Print version
 if "--version" in OPT:
     print(f"zypperoni v{ZYPPERONI_VERSION}")
+    zypperoni_cleanup()
     sys.exit()
 
 # Validate command
 if not COMMAND:
     print("No valid command provided. See usage below.\n")
     print(help_text.strip())
+    zypperoni_cleanup()
     sys.exit(1)
 if COMMAND in ["in", "in-download"] and not ARG:
     print(f"No arguments (packages) provided for command {COMMAND!r}. See usage below.\n")
     print(help_text.strip())
+    zypperoni_cleanup()
     sys.exit(1)
 
 # Validate options
@@ -385,6 +389,7 @@ for opt in OPT:
     if opt not in VALID_OPT:
         print(f"Invalid option {opt!r}. See usage below.\n")
         print(help_text.strip())
+        zypperoni_cleanup()
         sys.exit(1)
 
 DEBUG = True if "--debug" in OPT else False
@@ -399,9 +404,11 @@ if "--max-jobs" in OPT:
             raise ValueError
     except ValueError:
         print("Invalid value for option '--max-jobs'. Must be between 1 to 20 (inclusive)")
+        zypperoni_cleanup()
         sys.exit(2)
     except IndexError:
         print("No value provided for option '--max-jobs'")
+        zypperoni_cleanup()
         sys.exit(2)
 
 
@@ -415,6 +422,7 @@ logging.basicConfig(
 # Bail out if we're not root
 if os.getuid() != 0:
     logging.error("Bailing out, program must be run with root privileges")
+    zypperoni_cleanup()
     sys.exit(3)
 
 # Bail out if required dependecies are not available
@@ -426,6 +434,7 @@ for program in programs:
             f"for user {os.environ.get('USER')!r}. The following shell tools " \
             f"are required for zypperoni to function: {', '.join(programs)}"
         )
+        zypperoni_cleanup()
         sys.exit(4)
 
 # Check if zypper is already running
@@ -444,6 +453,7 @@ if os.path.isfile(ZYPPER_PID_FILE):
                 msg = f"zypper is already invoked by the application with pid {pid} ({pid_program}).\n" \
                 "Close this application before trying again."
                 logging.error(msg)
+                zypperoni_cleanup()
                 sys.exit(5)
 
 # Handle commands: ref, force-ref
