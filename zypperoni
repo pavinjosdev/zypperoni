@@ -21,17 +21,20 @@ import sys
 import time
 import logging
 import asyncio
+import tempfile
 import subprocess
 from uuid import uuid4
 from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "0.3.0"
-ZYPPERONI_TMP_DIR = "/tmp/zypperoni"
+ZYPPERONI_VERSION = "0.3.1"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 VALID_CMD = ["ref", "force-ref", "in", "in-download", "dup", "dup-download", "inr", "inr-download"]
 VALID_OPT = ["--debug", "--help", "--version", "--no-confirm", "--max-jobs"]
+
+# Create secure temp dir
+ZYPPERONI_TMP_DIR = tempfile.mkdtemp(dir="/tmp", prefix="zypperoni_")
 
 # Command help/usage info
 help_text = """
@@ -442,15 +445,6 @@ if os.path.isfile(ZYPPER_PID_FILE):
                 "Close this application before trying again."
                 logging.error(msg)
                 sys.exit(5)
-
-# Create and secure temp dir
-if os.path.exists(ZYPPERONI_TMP_DIR):
-    os.rename(ZYPPERONI_TMP_DIR, f"{ZYPPERONI_TMP_DIR}.{int(time.time())}.broken")
-commands = f"""
-mkdir -p {ZYPPERONI_TMP_DIR};
-chmod 700 {ZYPPERONI_TMP_DIR};
-"""
-shell_exec(commands)
 
 # Handle commands: ref, force-ref
 if COMMAND in ["ref", "force-ref"]:
