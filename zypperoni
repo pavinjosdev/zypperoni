@@ -28,7 +28,7 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "0.3.1"
+ZYPPERONI_VERSION = "0.3.2"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 VALID_CMD = ["ref", "force-ref", "in", "in-download", "dup", "dup-download", "inr", "inr-download"]
 VALID_OPT = ["--debug", "--help", "--version", "--no-confirm", "--max-jobs"]
@@ -155,7 +155,7 @@ def get_zypp_lock():
 
 # Function to release lock on zypper
 def release_zypp_lock():
-    os.system(f"echo -n > {ZYPPER_PID_FILE}")
+    os.system(f"echo -n > {ZYPPER_PID_FILE} > /dev/null 2>&1")
     return True
 
 # Function to unmount temp dirs provided list of UUIDs
