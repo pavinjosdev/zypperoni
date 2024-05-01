@@ -155,8 +155,11 @@ def get_zypp_lock():
 
 # Function to release lock on zypper
 def release_zypp_lock():
-    os.system(f"echo -n > {ZYPPER_PID_FILE} > /dev/null 2>&1")
-    return True
+    if os.getuid == 0:
+        os.system(f"echo -n > {ZYPPER_PID_FILE}")
+        return True
+    else:
+        return False
 
 # Function to unmount temp dirs provided list of UUIDs
 def unmount(UUID):
