@@ -28,7 +28,7 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "0.3.2"
+ZYPPERONI_VERSION = "0.3.3"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 VALID_CMD = ["ref", "force-ref", "in", "in-download", "dup", "dup-download", "inr", "inr-download"]
 VALID_OPT = ["--debug", "--help", "--version", "--no-confirm", "--max-jobs"]
@@ -336,15 +336,15 @@ async def main_task(num_jobs, task_type, task_items, no_confirm=None):
             msg = "Zypperoni has finished its tasks. Handing you over to zypper..."
             if task_type == "dup":
                 logging.info(msg)
-                command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} dist-upgrade"
+                command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} --no-cd dist-upgrade"
                 os.system(command)
             elif task_type == "in":
                 logging.info(msg)
-                command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} install {' '.join(install_pkgs)}"
+                command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} --no-cd install {' '.join(install_pkgs)}"
                 os.system(command)
             elif task_type == "inr":
                 logging.info(msg)
-                command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} install-new-recommends"
+                command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} --no-cd install-new-recommends"
                 os.system(command)
 
 ################################
@@ -464,7 +464,8 @@ if COMMAND in ["ref", "force-ref"]:
     # get all enabled repos
     logging.info("Getting all enabled repos")
     REPO_ALIAS = []
-    xml_output = shell_exec("env -i zypper --non-interactive --xmlout repos")
+    xml_output = shell_exec("env -i zypper --non-interactive --no-cd --xmlout repos")
+    logging.debug(xml_output)
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
     for item in docroot.iter("repo"):
@@ -486,7 +487,8 @@ if COMMAND in ["ref", "force-ref"]:
 elif COMMAND in ["dup", "dup-download"]:
     # get info about dup packages
     logging.info("Getting all packages to be downloaded for distribution upgrade")
-    xml_output = shell_exec("env -i zypper --non-interactive --xmlout dist-upgrade --dry-run")
+    xml_output = shell_exec("env -i zypper --non-interactive --no-cd --xmlout dist-upgrade --dry-run")
+    logging.debug(xml_output)
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
     for item in docroot.iter('install-summary'):
@@ -497,6 +499,10 @@ elif COMMAND in ["dup", "dup-download"]:
         logging.info(f"Total download size: {download_size_bytes/1000**2:.2f} MB")
         if COMMAND == "dup":
             logging.info(f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB")
+        if not num_pkgs:
+            if xml_output.find("conflicts") != -1 or xml_output.find("nothing provides") != -1:
+                logging.warning("There are package conflicts that must be manually resolved. See output of:\n" \
+                                "zypper --non-interactive --no-cd dist-upgrade --dry-run")
     # parse all packages from xml output
     DUP_PKG = []
     for item in docroot.iter("solvable"):
@@ -523,7 +529,7 @@ elif COMMAND in ["dup", "dup-download"]:
     if COMMAND == "dup" and download_size_bytes == 0:
         zypperoni_cleanup()
         logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
-        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} dist-upgrade"
+        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} --no-cd dist-upgrade"
         os.system(command)
         sys.exit()
     logging.info(f"Packages to download: {' '.join(DUP_PKG)}")
@@ -541,7 +547,8 @@ elif COMMAND in ["dup", "dup-download"]:
 elif COMMAND in ["in", "in-download"]:
     # get info about install packages
     logging.info("Getting packages and its dependecies to be downloaded for installation")
-    xml_output = shell_exec(f"env -i zypper --non-interactive --xmlout install --dry-run {' '.join(ARG)}")
+    xml_output = shell_exec(f"env -i zypper --non-interactive --no-cd --xmlout install --dry-run {' '.join(ARG)}")
+    logging.debug(xml_output)
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
     NO_ERR = False
@@ -553,6 +560,10 @@ elif COMMAND in ["in", "in-download"]:
         logging.info(f"Total download size: {download_size_bytes/1000**2:.2f} MB")
         logging.info(f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB")
         NO_ERR = True
+        if not num_pkgs:
+            if xml_output.find("conflicts") != -1 or xml_output.find("nothing provides") != -1:
+                logging.warning("There are package conflicts that must be manually resolved. See output of:\n" \
+                                "zypper --non-interactive --no-cd dist-upgrade --dry-run")
     if not NO_ERR:
         friendly_output = ""
         for item in docroot.iter("message"):
@@ -586,7 +597,7 @@ elif COMMAND in ["in", "in-download"]:
     if COMMAND == "in" and download_size_bytes == 0:
         zypperoni_cleanup()
         logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
-        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} install {' '.join(ARG)}"
+        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} --no-cd install {' '.join(ARG)}"
         os.system(command)
         sys.exit()
     logging.info(f"Packages to download: {' '.join(IN_PKG)}")
@@ -604,7 +615,8 @@ elif COMMAND in ["in", "in-download"]:
 elif COMMAND in ["inr", "inr-download"]:
     # get info about recommended install packages
     logging.info("Getting new packages and its dependecies to be downloaded for recommended installation")
-    xml_output = shell_exec(f"env -i zypper --non-interactive --xmlout install-new-recommends --dry-run")
+    xml_output = shell_exec(f"env -i zypper --non-interactive --no-cd --xmlout install-new-recommends --dry-run")
+    logging.debug(xml_output)
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
     for item in docroot.iter('install-summary'):
@@ -614,6 +626,10 @@ elif COMMAND in ["inr", "inr-download"]:
         logging.info(f"Number of packages to download: {num_pkgs}")
         logging.info(f"Total download size: {download_size_bytes/1000**2:.2f} MB")
         logging.info(f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB")
+        if not num_pkgs:
+            if xml_output.find("conflicts") != -1 or xml_output.find("nothing provides") != -1:
+                logging.warning("There are package conflicts that must be manually resolved. See output of:\n" \
+                                "zypper --non-interactive --no-cd dist-upgrade --dry-run")
     # parse all packages from xml output
     INR_PKG = []
     for item in docroot.iter("solvable"):
@@ -640,7 +656,7 @@ elif COMMAND in ["inr", "inr-download"]:
     if COMMAND == "inr" and download_size_bytes == 0:
         zypperoni_cleanup()
         logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
-        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} install-new-recommends"
+        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} --no-cd install-new-recommends"
         os.system(command)
         sys.exit()
     logging.info(f"Packages to download: {' '.join(INR_PKG)}")
