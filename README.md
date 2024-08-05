@@ -63,7 +63,7 @@ sudo rm /usr/bin/zypperoni
 Specify the `--debug` option for troubleshooting.
 Zypperoni is intended to catch SIGINT (Ctrl+C) and properly cleanup.
 If for some reason it does not cleanup such as when receiving SIGTERM or SIGKILL, future operations should not be affected.
-Zypperoni keeps it's working directory in `/tmp/zypperoni_*`, so a reboot would always cleanup.
+Zypperoni keeps its working directory in `/tmp/zypperoni_*`, so a reboot would always cleanup.
 Should zypperoni somehow mess up, it's very simple to clear whatever it has done wrong by doing:
 ```
 sudo rm -rI /var/cache/zypp
@@ -87,4 +87,4 @@ Now you can use `z ref` and `z dup` to refresh repos and perform distribution up
 Generally, zypperoni should work out of the box with the default zypp and zypper configs.
 Custom or experimental configs may result in bugs.
 
-- Using the experimental option `techpreview.ZYPP_SINGLE_RPMTRANS=1` in `zypp.conf` would result in `zypperoni dup-download` appearing to hang indefinitely, but in reality zypper is doing it's sequential download in the background due to RPM single transaction requirements. This config is not necessary when using zypperoni as it passes `ZYPP_SINGLE_RPMTRANS=1` as an environment variable when calling zypper.
+- Using the experimental option `techpreview.ZYPP_SINGLE_RPMTRANS=1` in `zypp.conf` would result in `zypperoni dup-download` appearing to hang indefinitely, but in reality zypper is doing its sequential download in the background due to RPM single transaction requirements. This config is not necessary when using zypperoni as it passes `ZYPP_SINGLE_RPMTRANS=1` as an environment variable when calling zypper.

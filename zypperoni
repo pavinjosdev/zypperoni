@@ -333,7 +333,7 @@ async def main_task(num_jobs, task_type, task_items, no_confirm=None):
         release_zypp_lock()
         # perform additional zypper commands (if any) on no exception
         if not EXCEPTION_OCCUR:
-            msg = "Zypperoni has finished it's tasks. Handing you over to zypper..."
+            msg = "Zypperoni has finished its tasks. Handing you over to zypper..."
             if task_type == "dup":
                 logging.info(msg)
                 command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} --no-cd dist-upgrade"
@@ -528,7 +528,7 @@ elif COMMAND in ["dup", "dup-download"]:
     # proceed straight to dup if all packages are in cache
     if COMMAND == "dup" and download_size_bytes == 0:
         zypperoni_cleanup()
-        logging.info("Zypperoni has finished it's tasks. Handing you over to zypper...")
+        logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
         command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} --no-cd dist-upgrade"
         os.system(command)
         sys.exit()
@@ -596,7 +596,7 @@ elif COMMAND in ["in", "in-download"]:
     # proceed straight to install if all packages are in cache
     if COMMAND == "in" and download_size_bytes == 0:
         zypperoni_cleanup()
-        logging.info("Zypperoni has finished it's tasks. Handing you over to zypper...")
+        logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
         command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} --no-cd install {' '.join(ARG)}"
         os.system(command)
         sys.exit()
@@ -655,7 +655,7 @@ elif COMMAND in ["inr", "inr-download"]:
     # proceed straight to inr if all packages are in cache
     if COMMAND == "inr" and download_size_bytes == 0:
         zypperoni_cleanup()
-        logging.info("Zypperoni has finished it's tasks. Handing you over to zypper...")
+        logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
         command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} --no-cd install-new-recommends"
         os.system(command)
         sys.exit()
