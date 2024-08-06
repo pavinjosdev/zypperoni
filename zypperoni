@@ -428,12 +428,12 @@ if os.getuid() != 0:
     zypperoni_cleanup()
     sys.exit(3)
 
-# Bail out if required dependecies are not available
+# Bail out if required dependencies are not available
 programs = ["zypper", "echo", "ps", "sed", "awk", "mkdir", "cat", "dirname", "basename", \
             "readlink", "mount", "chroot", "umount", "sleep", "rm", "env", "findmnt"]
 for program in programs:
     if not shell_exec(f"command -v {program}"):
-        logging.error(f"Bailing out, missing required dependecy {program!r} in PATH ({os.environ.get('PATH')}) " \
+        logging.error(f"Bailing out, missing required dependency {program!r} in PATH ({os.environ.get('PATH')}) " \
             f"for user {os.environ.get('USER')!r}. The following shell tools " \
             f"are required for zypperoni to function: {', '.join(programs)}"
         )
@@ -546,7 +546,7 @@ elif COMMAND in ["dup", "dup-download"]:
 # Handle commands: in, in-download
 elif COMMAND in ["in", "in-download"]:
     # get info about install packages
-    logging.info("Getting packages and its dependecies to be downloaded for installation")
+    logging.info("Getting packages and their dependencies to be downloaded for installation")
     xml_output = shell_exec(f"env -i zypper --non-interactive --no-cd --xmlout install --dry-run {' '.join(ARG)}")
     logging.debug(xml_output)
     get_zypp_lock()
@@ -614,7 +614,7 @@ elif COMMAND in ["in", "in-download"]:
 # Handle commands: inr, inr-download
 elif COMMAND in ["inr", "inr-download"]:
     # get info about recommended install packages
-    logging.info("Getting new packages and its dependecies to be downloaded for recommended installation")
+    logging.info("Getting new packages and their dependencies to be downloaded for recommended installation")
     xml_output = shell_exec(f"env -i zypper --non-interactive --no-cd --xmlout install-new-recommends --dry-run")
     logging.debug(xml_output)
     get_zypp_lock()
