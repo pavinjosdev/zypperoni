@@ -28,7 +28,7 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "0.3.3"
+ZYPPERONI_VERSION = "0.3.4"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 VALID_CMD = ["ref", "force-ref", "in", "in-download", "dup", "dup-download", "inr", "inr-download"]
 VALID_OPT = ["--debug", "--help", "--version", "--no-confirm", "--max-jobs"]
@@ -500,7 +500,7 @@ elif COMMAND in ["dup", "dup-download"]:
         if COMMAND == "dup":
             logging.info(f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB")
         if not num_pkgs:
-            if xml_output.find("conflicts") != -1 or xml_output.find("nothing provides") != -1:
+            if xml_output.find("Choose from above solutions") != -1 or xml_output.find("nothing provides") != -1:
                 logging.warning("There are package conflicts that must be manually resolved. See output of:\n" \
                                 "zypper --non-interactive --no-cd dist-upgrade --dry-run")
     # parse all packages from xml output
@@ -561,7 +561,7 @@ elif COMMAND in ["in", "in-download"]:
         logging.info(f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB")
         NO_ERR = True
         if not num_pkgs:
-            if xml_output.find("conflicts") != -1 or xml_output.find("nothing provides") != -1:
+            if xml_output.find("Choose from above solutions") != -1 or xml_output.find("nothing provides") != -1:
                 logging.warning("There are package conflicts that must be manually resolved. See output of:\n" \
                                 "zypper --non-interactive --no-cd dist-upgrade --dry-run")
     if not NO_ERR:
@@ -627,7 +627,7 @@ elif COMMAND in ["inr", "inr-download"]:
         logging.info(f"Total download size: {download_size_bytes/1000**2:.2f} MB")
         logging.info(f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB")
         if not num_pkgs:
-            if xml_output.find("conflicts") != -1 or xml_output.find("nothing provides") != -1:
+            if xml_output.find("Choose from above solutions") != -1 or xml_output.find("nothing provides") != -1:
                 logging.warning("There are package conflicts that must be manually resolved. See output of:\n" \
                                 "zypper --non-interactive --no-cd dist-upgrade --dry-run")
     # parse all packages from xml output
