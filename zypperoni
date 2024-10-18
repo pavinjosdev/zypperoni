@@ -28,7 +28,7 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "0.3.4"
+ZYPPERONI_VERSION = "0.3.5"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 VALID_CMD = ["ref", "force-ref", "in", "in-download", "dup", "dup-download", "inr", "inr-download"]
 VALID_OPT = ["--debug", "--help", "--version", "--no-confirm", "--max-jobs"]
@@ -195,11 +195,11 @@ def zypperoni_cleanup():
     release_zypp_lock()
     recursive_delete(ZYPPERONI_TMP_DIR)
 
-# Function to get output of shell command
+# Function to get output and exit code of shell command
 def shell_exec(command):
     res = subprocess.run(command, shell=True, capture_output=True, encoding="utf8", errors="replace")
     output = res.stdout + res.stderr
-    return output.strip()
+    return output.strip(), res.returncode
 
 # Async function to perform zypper shell commands
 async def zypper_task(lock, UUID, task_type, task_item, total_items, item_counter):
@@ -432,7 +432,8 @@ if os.getuid() != 0:
 programs = ["zypper", "echo", "ps", "sed", "awk", "mkdir", "cat", "dirname", "basename", \
             "readlink", "mount", "chroot", "umount", "sleep", "rm", "env", "findmnt"]
 for program in programs:
-    if not shell_exec(f"command -v {program}"):
+    out, ret = shell_exec(f"command -v {program}")
+    if not out:
         logging.error(f"Bailing out, missing required dependency {program!r} in PATH ({os.environ.get('PATH')}) " \
             f"for user {os.environ.get('USER')!r}. The following shell tools " \
             f"are required for zypperoni to function: {', '.join(programs)}"
@@ -451,7 +452,7 @@ if os.path.isfile(ZYPPER_PID_FILE):
         except ValueError:
             pid = None
         if pid:
-            pid_program = shell_exec(f"ps -p {pid} | sed '1d' | awk '{{print $4}}'")
+            pid_program, ret = shell_exec(f"ps -p {pid} | sed '1d' | awk '{{print $4}}'")
             if pid_program:
                 msg = f"zypper is already invoked by the application with pid {pid} ({pid_program}).\n" \
                 "Close this application before trying again."
@@ -464,7 +465,7 @@ if COMMAND in ["ref", "force-ref"]:
     # get all enabled repos
     logging.info("Getting all enabled repos")
     REPO_ALIAS = []
-    xml_output = shell_exec("env -i zypper --non-interactive --no-cd --xmlout repos")
+    xml_output, ret = shell_exec("env -i zypper --non-interactive --no-cd --xmlout repos")
     logging.debug(xml_output)
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
@@ -487,10 +488,15 @@ if COMMAND in ["ref", "force-ref"]:
 elif COMMAND in ["dup", "dup-download"]:
     # get info about dup packages
     logging.info("Getting all packages to be downloaded for distribution upgrade")
-    xml_output = shell_exec("env -i zypper --non-interactive --no-cd --xmlout dist-upgrade --dry-run")
+    xml_output, ret = shell_exec("env -i zypper --non-interactive --no-cd --xmlout dist-upgrade --dry-run")
     logging.debug(xml_output)
+    if ret == 0 and xml_output.find("Nothing to do") != -1:
+        logging.info("Nothing to do. Exiting...")
+        zypperoni_cleanup()
+        sys.exit()
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
+    num_pkgs = None
     for item in docroot.iter('install-summary'):
         download_size_bytes = float(item.attrib["download-size"])
         diff_bytes = float(item.attrib["space-usage-diff"])
@@ -499,10 +505,11 @@ elif COMMAND in ["dup", "dup-download"]:
         logging.info(f"Total download size: {download_size_bytes/1000**2:.2f} MB")
         if COMMAND == "dup":
             logging.info(f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB")
-        if not num_pkgs:
-            if xml_output.find("Choose from above solutions") != -1 or xml_output.find("nothing provides") != -1:
-                logging.warning("There are package conflicts that must be manually resolved. See output of:\n" \
-                                "zypper --non-interactive --no-cd dist-upgrade --dry-run")
+    if not num_pkgs:
+        logging.warning("There are package conflicts that must be manually resolved. See output of:\n" \
+                        "zypper --non-interactive --no-cd dist-upgrade --dry-run")
+        zypperoni_cleanup()
+        sys.exit()
     # parse all packages from xml output
     DUP_PKG = []
     for item in docroot.iter("solvable"):
@@ -547,11 +554,16 @@ elif COMMAND in ["dup", "dup-download"]:
 elif COMMAND in ["in", "in-download"]:
     # get info about install packages
     logging.info("Getting packages and their dependencies to be downloaded for installation")
-    xml_output = shell_exec(f"env -i zypper --non-interactive --no-cd --xmlout install --dry-run {' '.join(ARG)}")
+    xml_output, ret = shell_exec(f"env -i zypper --non-interactive --no-cd --xmlout install --dry-run {' '.join(ARG)}")
     logging.debug(xml_output)
+    if ret == 0 and xml_output.find("Nothing to do") != -1:
+        logging.info("Nothing to do. Exiting...")
+        zypperoni_cleanup()
+        sys.exit()
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
     NO_ERR = False
+    num_pkgs = None
     for item in docroot.iter('install-summary'):
         download_size_bytes = float(item.attrib["download-size"])
         diff_bytes = float(item.attrib["space-usage-diff"])
@@ -560,10 +572,11 @@ elif COMMAND in ["in", "in-download"]:
         logging.info(f"Total download size: {download_size_bytes/1000**2:.2f} MB")
         logging.info(f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB")
         NO_ERR = True
-        if not num_pkgs:
-            if xml_output.find("Choose from above solutions") != -1 or xml_output.find("nothing provides") != -1:
-                logging.warning("There are package conflicts that must be manually resolved. See output of:\n" \
-                                "zypper --non-interactive --no-cd dist-upgrade --dry-run")
+    if not num_pkgs:
+        logging.warning("There are package conflicts that must be manually resolved. See output of:\n" \
+                        "zypper --non-interactive --no-cd dist-upgrade --dry-run")
+        zypperoni_cleanup()
+        sys.exit()
     if not NO_ERR:
         friendly_output = ""
         for item in docroot.iter("message"):
@@ -615,10 +628,15 @@ elif COMMAND in ["in", "in-download"]:
 elif COMMAND in ["inr", "inr-download"]:
     # get info about recommended install packages
     logging.info("Getting new packages and their dependencies to be downloaded for recommended installation")
-    xml_output = shell_exec(f"env -i zypper --non-interactive --no-cd --xmlout install-new-recommends --dry-run")
+    xml_output, ret = shell_exec(f"env -i zypper --non-interactive --no-cd --xmlout install-new-recommends --dry-run")
     logging.debug(xml_output)
+    if ret == 0 and xml_output.find("Nothing to do") != -1:
+        logging.info("Nothing to do. Exiting...")
+        zypperoni_cleanup()
+        sys.exit()
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
+    num_pkgs = None
     for item in docroot.iter('install-summary'):
         download_size_bytes = float(item.attrib["download-size"])
         diff_bytes = float(item.attrib["space-usage-diff"])
@@ -626,10 +644,11 @@ elif COMMAND in ["inr", "inr-download"]:
         logging.info(f"Number of packages to download: {num_pkgs}")
         logging.info(f"Total download size: {download_size_bytes/1000**2:.2f} MB")
         logging.info(f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB")
-        if not num_pkgs:
-            if xml_output.find("Choose from above solutions") != -1 or xml_output.find("nothing provides") != -1:
-                logging.warning("There are package conflicts that must be manually resolved. See output of:\n" \
-                                "zypper --non-interactive --no-cd dist-upgrade --dry-run")
+    if not num_pkgs:
+        logging.warning("There are package conflicts that must be manually resolved. See output of:\n" \
+                        "zypper --non-interactive --no-cd dist-upgrade --dry-run")
+        zypperoni_cleanup()
+        sys.exit()
     # parse all packages from xml output
     INR_PKG = []
     for item in docroot.iter("solvable"):
