@@ -26,12 +26,21 @@ import subprocess
 from uuid import uuid4
 from shlex import quote
 import xml.etree.ElementTree as ET
+import argparse
 
 # Constants
 ZYPPERONI_VERSION = "0.3.5"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 VALID_CMD = ["ref", "force-ref", "in", "in-download", "dup", "dup-download", "inr", "inr-download"]
-VALID_OPT = ["--debug", "--help", "--version", "--no-confirm", "--max-jobs"]
+VALID_OPT = ["--debug", "--help", "--version", "--no-confirm"]
+
+MAX_JOBS = 10
+
+parser = argparse.ArgumentParser()
+parser.add_argument("command", choices=["ref", "dup"])
+parser.add_argument("--max-jobs", type=int, default=MAX_JOBS)
+
+args = parser.parse_args()
 
 # Create secure temp dir
 ZYPPERONI_TMP_DIR = tempfile.mkdtemp(dir="/tmp", prefix="zypperoni_")
@@ -397,23 +406,13 @@ for opt in OPT:
 
 DEBUG = True if "--debug" in OPT else False
 NO_CONFIRM = True if "--no-confirm" in OPT else False
-MAX_JOBS = 10
-if "--max-jobs" in OPT:
-    try:
-        num_jobs = int(sys.argv[sys.argv.index("--max-jobs") + 1])
-        if num_jobs in range(1, 21):
-            MAX_JOBS = num_jobs
-        else:
-            raise ValueError
-    except ValueError:
-        print("Invalid value for option '--max-jobs'. Must be between 1 to 20 (inclusive)")
-        zypperoni_cleanup()
-        sys.exit(2)
-    except IndexError:
-        print("No value provided for option '--max-jobs'")
-        zypperoni_cleanup()
-        sys.exit(2)
 
+if args.max_jobs not in range(1, 21):
+    print("Invalid value for option '--max-jobs'. Must be between 1 to 20 (inclusive)")
+    zypperoni_cleanup()
+    sys.exit(2)
+else:
+    MAX_JOBS = args.max_jobs
 
 # Setup logging
 logging.basicConfig(
