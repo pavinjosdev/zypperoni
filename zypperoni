@@ -124,6 +124,13 @@ umount_dirs = f"""
 {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs
 """
 
+# ANSI color codes
+COLOR_RESET = "\033[0m"
+COLOR_INFO = "\033[32m"  # Green
+COLOR_ERROR = "\033[31m"  # Red
+COLOR_DEBUG = "\033[36m"  # Cyan
+COLOR_WARNING = "\033[33m"  # Yellow
+
 ################################
 
 # Function to query user for yes or no
@@ -210,10 +217,10 @@ async def zypper_task(lock, UUID, task_type, task_item, total_items, item_counte
         commands = ""
         temp_dir = f"{ZYPPERONI_TMP_DIR}/{uuid}/rootfs"
         if task_type == "ref":
-            log_messages.update({"start": f"Refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
-            log_messages.update({"success": f"Successfully refreshed repo {task_item!r}"})
-            log_messages.update({"error": f"Error refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
-            log_messages.update({"exception": f"Received SIGINT while refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
+            log_messages.update({"start": f"{COLOR_INFO}Refreshing repo [{item_counter}/{total_items}] {task_item!r}{COLOR_RESET}"})
+            log_messages.update({"success": f"{COLOR_INFO}Successfully refreshed repo {task_item!r}{COLOR_RESET}"})
+            log_messages.update({"error": f"{COLOR_ERROR}Error refreshing repo [{item_counter}/{total_items}] {task_item!r}{COLOR_RESET}"})
+            log_messages.update({"exception": f"{COLOR_ERROR}Received SIGINT while refreshing repo [{item_counter}/{total_items}] {task_item!r}{COLOR_RESET}"})
             if not os.path.isdir(temp_dir):
                 commands = refresh_mount_commands + refresh_shell_commands
                 commands = commands.format(
@@ -228,10 +235,10 @@ async def zypper_task(lock, UUID, task_type, task_item, total_items, item_counte
                     repo_alias=task_item,
                 )
         elif task_type == "force-ref":
-            log_messages.update({"start": f"Force refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
-            log_messages.update({"success": f"Successfully force refreshed repo {task_item!r}"})
-            log_messages.update({"error": f"Error force refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
-            log_messages.update({"exception": f"Received SIGINT while force refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
+            log_messages.update({"start": f"{COLOR_INFO}Force refreshing repo [{item_counter}/{total_items}] {task_item!r}{COLOR_RESET}"})
+            log_messages.update({"success": f"{COLOR_INFO}Successfully force refreshed repo {task_item!r}{COLOR_RESET}"})
+            log_messages.update({"error": f"{COLOR_ERROR}Error force refreshing repo [{item_counter}/{total_items}] {task_item!r}{COLOR_RESET}"})
+            log_messages.update({"exception": f"{COLOR_ERROR}Received SIGINT while force refreshing repo [{item_counter}/{total_items}] {task_item!r}{COLOR_RESET}"})
             if not os.path.isdir(temp_dir):
                 commands = refresh_mount_commands + refresh_shell_commands
                 commands = commands.format(
@@ -246,10 +253,10 @@ async def zypper_task(lock, UUID, task_type, task_item, total_items, item_counte
                     repo_alias=task_item,
                 )
         elif task_type in ["dup", "dup-download", "in", "in-download", "inr", "inr-download"]:
-            log_messages.update({"start": f"Downloading package [{item_counter}/{total_items}] {task_item!r}"})
-            log_messages.update({"success": f"Successfully downloaded package {task_item!r}"})
-            log_messages.update({"error": f"Error downloading package [{item_counter}/{total_items}] {task_item!r}"})
-            log_messages.update({"exception": f"Received SIGINT while downloading package [{item_counter}/{total_items}] {task_item!r}"})
+            log_messages.update({"start": f"{COLOR_INFO}Downloading package [{item_counter}/{total_items}] {task_item!r}{COLOR_RESET}"})
+            log_messages.update({"success": f"{COLOR_INFO}Successfully downloaded package {task_item!r}{COLOR_RESET}"})
+            log_messages.update({"error": f"{COLOR_ERROR}Error downloading package [{item_counter}/{total_items}] {task_item!r}{COLOR_RESET}"})
+            log_messages.update({"exception": f"{COLOR_ERROR}Received SIGINT while downloading package [{item_counter}/{total_items}] {task_item!r}{COLOR_RESET}"})
             if not os.path.isdir(temp_dir):
                 commands = download_mount_commands + download_shell_commands
                 commands = commands.format(
@@ -302,11 +309,11 @@ async def main_task(num_jobs, task_type, task_items, no_confirm=None):
             task_item = task_items.pop(0)
             item_counter += 1
             if task_type == "ref":
-                log_messages.update({"exception": "Received SIGINT while processing tasks to refresh repo"})
+                log_messages.update({"exception": f"{COLOR_ERROR}Received SIGINT while processing tasks to refresh repo{COLOR_RESET}"})
             elif task_type == "force-ref":
-                log_messages.update({"exception": "Received SIGINT while processing tasks to force refresh repo"})
+                log_messages.update({"exception": f"{COLOR_ERROR}Received SIGINT while processing tasks to force refresh repo{COLOR_RESET}"})
             elif task_type in ["dup", "dup-download", "in", "in-download", "inr", "inr-download"]:
-                log_messages.update({"exception": "Received SIGINT while processing tasks to download packages"})
+                log_messages.update({"exception": f"{COLOR_ERROR}Received SIGINT while processing tasks to download packages{COLOR_RESET}"})
             asyncio.create_task(zypper_task(lock, UUID, task_type, task_item, total_items, item_counter))
             await asyncio.sleep(0.1)
         # finished processing all tasks
@@ -333,7 +340,7 @@ async def main_task(num_jobs, task_type, task_items, no_confirm=None):
         release_zypp_lock()
         # perform additional zypper commands (if any) on no exception
         if not EXCEPTION_OCCUR:
-            msg = "Zypperoni has finished its tasks. Handing you over to zypper..."
+            msg = f"{COLOR_INFO}Zypperoni has finished its tasks. Handing you over to zypper...{COLOR_RESET}"
             if task_type == "dup":
                 logging.info(msg)
                 command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} --no-cd dist-upgrade"
