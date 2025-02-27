@@ -28,7 +28,7 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "0.3.5"
+ZYPPPERONI_VERSION = "0.3.5"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 VALID_CMD = ["ref", "force-ref", "in", "in-download", "dup", "dup-download", "inr", "inr-download"]
 VALID_OPT = ["--debug", "--help", "--version", "--no-confirm", "--max-jobs"]
@@ -126,10 +126,11 @@ umount_dirs = f"""
 
 # ANSI color codes
 COLOR_RESET = "\033[0m"
-COLOR_INFO = "\033[32m"  # Green
-COLOR_ERROR = "\033[31m"  # Red
+COLOR_INFO = "\033[1;34m"  # Bright Blue
+COLOR_ERROR = "\033[1;31m"  # Bright Red
 COLOR_DEBUG = "\033[36m"  # Cyan
-COLOR_WARNING = "\033[33m"  # Yellow
+COLOR_WARNING = "\033[1;33m"  # Bright Yellow
+COLOR_QUESTION = "\033[1;32m"  # Bright Green
 
 ################################
 
@@ -137,11 +138,11 @@ COLOR_WARNING = "\033[33m"  # Yellow
 def query_yes_no(question, default=None):
     valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
     if default is None:
-        prompt = " [y/n]: "
+        prompt = f" {COLOR_QUESTION}[y/n]: {COLOR_RESET}"
     elif default == "yes":
-        prompt = " [Y/n]: "
+        prompt = f" {COLOR_QUESTION}[Y/n]: {COLOR_RESET}"
     elif default == "no":
-        prompt = " [y/N]: "
+        prompt = f" {COLOR_QUESTION}[y/N]: {COLOR_RESET}"
     else:
         raise ValueError(f"Invalid default answer: {default!r}")
     while True:
@@ -152,9 +153,9 @@ def query_yes_no(question, default=None):
         elif choice in valid:
             return valid[choice]
         else:
-            sys.stdout.write("Please respond with 'yes' or 'no' (or 'y' or 'n').\n")
+            sys.stdout.write(f"{COLOR_WARNING}Please respond with 'yes' or 'no' (or 'y' or 'n').{COLOR_RESET}\n")
 
-# Function to take exclusive control of future zypper invokations
+# Function to take exclusive control of future zypper invocations
 def get_zypp_lock():
     our_pid = os.getpid()
     os.system(f"echo {our_pid} > {ZYPPER_PID_FILE}")
