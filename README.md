@@ -126,4 +126,4 @@ Now you can use `z ref` and `z dup` to refresh repos and perform distribution up
 Generally, zypperoni should work out of the box with the default zypp and zypper configs.
 Custom or experimental configs may result in bugs.
 
-- Using the experimental option `techpreview.ZYPP_SINGLE_RPMTRANS=1` in `zypp.conf` would result in `zypperoni dup-download` appearing to hang indefinitely, but in reality zypper is doing its sequential download in the background due to RPM single transaction requirements. This config is not necessary when using zypperoni as it passes `ZYPP_SINGLE_RPMTRANS=1` as an environment variable when calling zypper.
+- Using the experimental option `techpreview.ZYPP_SINGLE_RPMTRANS=1` in `zypp.conf` would result in `zypperoni dup` appearing to hang indefinitely, but in reality zypper is doing its sequential download in the background due to RPM single transaction requirements. This config is not necessary when using zypperoni as it passes `ZYPP_SINGLE_RPMTRANS=1` as an environment variable when calling zypper.
