@@ -29,7 +29,7 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "0.4.0"
+ZYPPERONI_VERSION = "0.5.0"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 
 ################################
@@ -470,7 +470,7 @@ elif args.command_name in ["dist-upgrade", "dup"]:
         sys.exit()
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
-    num_pkgs = None
+    diff_bytes, download_size_bytes, num_pkgs = (None,) * 3
     for item in docroot.iter('install-summary'):
         download_size_bytes = float(item.attrib["download-size"])
         diff_bytes = float(item.attrib["space-usage-diff"])
@@ -479,25 +479,34 @@ elif args.command_name in ["dist-upgrade", "dup"]:
         logging.info(color("info", f"Total download size: {download_size_bytes/1000**2:.2f} MB"))
         if not args.download_only:
             logging.info(color("info", f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB"))
-    if not num_pkgs:
-        msg = "There are package conflicts that must be manually resolved. See output of:\n" \
-            "zypper --non-interactive --no-cd dist-upgrade --dry-run"
+    if num_pkgs:
+        # parse all packages from xml output
+        DUP_PKG = []
+        for item in docroot.iter("solvable"):
+            if item.attrib["type"] == "package":
+                DUP_PKG.append(f"{item.attrib['name']}-{item.attrib['edition']}.{item.attrib['arch']}")
+        # parse all packages to be removed
+        RM_PKG = []
+        for rm in docroot.iter("to-remove"):
+            for solv in rm.findall("solvable"):
+                if solv.get("type") == "package":
+                    RM_PKG.append(f"{item.attrib['name']}-{item.attrib['edition']}.{item.attrib['arch']}")
+        DUP_PKG = list( set(DUP_PKG) - set(RM_PKG) )
+        DUP_PKG.sort()
+    else:
+        msg = "There are package conflicts that must be manually resolved. Falling back to secondary method of fetching packages to upgrade..."
         logging.warning(color("warning", msg))
-        zypperoni_cleanup()
-        sys.exit()
-    # parse all packages from xml output
-    DUP_PKG = []
-    for item in docroot.iter("solvable"):
-        if item.attrib["type"] == "package":
-            DUP_PKG.append(item.attrib["name"])
-    # parse all packages to be removed
-    RM_PKG = []
-    for rm in docroot.iter("to-remove"):
-        for solv in rm.findall("solvable"):
-            if solv.get("type") == "package":
-                RM_PKG.append(solv.get("name"))
-    DUP_PKG = list( set(DUP_PKG) - set(RM_PKG) )
-    DUP_PKG.sort()
+        # get info about dup packages from 'zypper lu'
+        logging.info(color("info", "Getting all packages to be upgraded"))
+        xml_output, ret = shell_exec("env -i zypper --non-interactive --no-cd --xmlout list-updates --type package --all")
+        logging.debug(xml_output)
+        docroot = ET.fromstring(xml_output)
+        # parse all packages from xml output
+        DUP_PKG = []
+        for item in docroot.iter("update"):
+            if item.attrib["kind"] == "package":
+                DUP_PKG.append(f"{item.attrib['name']}-{item.attrib['edition']}.{item.attrib['arch']}")
+        DUP_PKG.sort()
     if not DUP_PKG:
         logging.info(color("info", "Nothing to do. Exiting..."))
         zypperoni_cleanup()
