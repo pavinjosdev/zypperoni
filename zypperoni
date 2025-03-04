@@ -21,6 +21,7 @@ import sys
 import time
 import logging
 import asyncio
+import argparse
 import tempfile
 import subprocess
 from uuid import uuid4
@@ -28,103 +29,28 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "0.3.5"
+ZYPPERONI_VERSION = "1.0.0"
 ZYPPER_PID_FILE = "/run/zypp.pid"
-VALID_CMD = ["ref", "force-ref", "in", "in-download", "dup", "dup-download", "inr", "inr-download"]
-VALID_OPT = ["--debug", "--help", "--version", "--no-confirm", "--max-jobs"]
-
-# Create secure temp dir
-ZYPPERONI_TMP_DIR = tempfile.mkdtemp(dir="/tmp", prefix="zypperoni_")
-
-# Command help/usage info
-help_text = """
-Usage: zypperoni [options] command
-       zypperoni [options] in pkg1 [pkg2 ...]
-       zypperoni [options] in-download pkg1 [pkg2 ...]
-
-zypperoni provides parallel operations
-for zypper's oft-used time consuming commands.
-
-Commands:
-  ref           - Refresh all enabled repos
-  force-ref     - Force refresh all enabled repos
-  in            - Install packages
-  in-download   - Download packages for later installation
-  dup           - Perform distribution upgrade
-  dup-download  - Download packages required for distribution upgrade
-  inr           - Install new packages recommended by already installed ones
-  inr-download  - Download new packages recommended by already installed ones
-
-Options:
-  --debug       - Enable debug output
-  --help        - Print this help and exit
-  --version     - Print version number and exit
-  --no-confirm  - Automatic yes to prompts, run non-interactively
-  --max-jobs    - Maximum number of parallel operations [default: 10 / max: 20]
-"""
-
-# Shell commands to prepare temp mounts for zypper refresh
-refresh_mount_commands = f"""
-mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs;
-mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/run;
-mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/var/cache/zypp;
-mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/var/lib/ca-certificates;
-if readlink /etc/resolv.conf; then
-    RESOLV_PATH=$(readlink /etc/resolv.conf);
-    TEMP_DIR={ZYPPERONI_TMP_DIR}/{{uuid}}"$(dirname "$RESOLV_PATH")";
-    mkdir -p "$TEMP_DIR";
-    cat "$RESOLV_PATH" > "$TEMP_DIR"/"$(basename "$RESOLV_PATH")";
-fi;
-mount -o bind,ro / {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs;
-mount -t devtmpfs none {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/dev;
-mount -t tmpfs none {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/tmp;
-mount -o bind {ZYPPERONI_TMP_DIR}/{{uuid}}/run {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/run;
-mount -o bind {ZYPPERONI_TMP_DIR}/{{uuid}}/var {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var;
-mount -o bind /var/cache/zypp {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/cache/zypp;
-mount -o bind,ro /var/lib/ca-certificates {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/lib/ca-certificates;
-"""
-
-# Shell commands to perform zypper refresh / force-refresh
-refresh_shell_commands = f"""
-chroot {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs env -i zypper --non-interactive {{refresh_type}} {{repo_alias}};
-"""
-
-# Shell commands to prepare temp mounts for zypper download
-download_mount_commands = f"""
-mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs;
-mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/run;
-mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/var/cache/zypp;
-mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/var/lib/ca-certificates;
-if readlink /etc/resolv.conf; then
-    RESOLV_PATH=$(readlink /etc/resolv.conf);
-    TEMP_DIR={ZYPPERONI_TMP_DIR}/{{uuid}}"$(dirname "$RESOLV_PATH")";
-    mkdir -p "$TEMP_DIR";
-    cat "$RESOLV_PATH" > "$TEMP_DIR"/"$(basename "$RESOLV_PATH")";
-fi;
-mount -o bind,ro / {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs;
-mount -o bind {ZYPPERONI_TMP_DIR}/{{uuid}}/run {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/run;
-mount -o bind {ZYPPERONI_TMP_DIR}/{{uuid}}/var {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var;
-mount -o bind /var/cache/zypp {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/cache/zypp;
-mount -o bind,ro /var/lib/ca-certificates {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/lib/ca-certificates;
-"""
-
-# Shell commands to perform zypper download
-download_shell_commands = f"""
-chroot {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs env -i zypper --non-interactive download {{pkg_name}};
-"""
-
-# Dirs to unmount (one per line)
-umount_dirs = f"""
-{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/lib/ca-certificates
-{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/cache/zypp
-{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var
-{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/run
-{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/tmp
-{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/dev
-{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs
-"""
 
 ################################
+
+# Function to get ANSI colored text
+def color(text_type, text):
+    # rgb color codes
+    colors = {
+        "input": (0, 170, 170), # cyan
+        "success": (0, 170, 0), # green
+        "info": (85, 85, 255), # bright blue
+        "warning": (255, 255, 85), # bright yellow
+        "error": (255, 85, 85), # bright red
+        "exception": (170, 0, 170), # magenta
+    }
+    color = colors.get(text_type)
+    # color only if running in terminal and color output is not disabled
+    if color and sys.stdout.isatty() and args and not args.no_color:
+        return f"\033[38;2;{color[0]};{color[1]};{color[2]}m{text} \033[38;2;255;255;255m"
+    else:
+        return text
 
 # Function to query user for yes or no
 def query_yes_no(question, default=None):
@@ -138,16 +64,16 @@ def query_yes_no(question, default=None):
     else:
         raise ValueError(f"Invalid default answer: {default!r}")
     while True:
-        sys.stdout.write(question + prompt)
+        sys.stdout.write(color("input", question + prompt))
         choice = input().lower()
         if default is not None and choice == "":
             return valid[default]
         elif choice in valid:
             return valid[choice]
         else:
-            sys.stdout.write("Please respond with 'yes' or 'no' (or 'y' or 'n').\n")
+            sys.stdout.write(color("warning", "Please respond with 'yes' or 'no' (or 'y' or 'n').\n"))
 
-# Function to take exclusive control of future zypper invokations
+# Function to take exclusive control of future zypper invocations
 def get_zypp_lock():
     our_pid = os.getpid()
     os.system(f"echo {our_pid} > {ZYPPER_PID_FILE}")
@@ -261,7 +187,7 @@ async def zypper_task(lock, UUID, task_type, task_item, total_items, item_counte
                     uuid=uuid,
                     pkg_name=task_item,
                 )
-        logging.info(log_messages.get("start"))
+        logging.info(color("info", log_messages.get("start")))
         proc = await asyncio.create_subprocess_shell(
             commands,
             stdout=asyncio.subprocess.PIPE,
@@ -269,13 +195,13 @@ async def zypper_task(lock, UUID, task_type, task_item, total_items, item_counte
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode == 0:
-            logging.info(log_messages.get("success"))
+            logging.info(color("success", log_messages.get("success")))
         else:
-            logging.error(f"{log_messages.get('error')}. zypper exit code: {proc.returncode}")
+            logging.error(color("error", f"{log_messages.get('error')}. zypper exit code: {proc.returncode}"))
         if stdout:
-            logging.debug(f'[zypper output]\n{stdout.decode()}')
+            logging.debug(f"[zypper output]\n{stdout.decode()}")
         if stderr:
-            logging.debug(f'[zypper error]\n{stderr.decode()}')
+            logging.debug(f"[zypper error]\n{stderr.decode()}")
         async with lock:
             UUID.append(uuid)
     except asyncio.exceptions.CancelledError:
@@ -318,16 +244,16 @@ async def main_task(num_jobs, task_type, task_items, no_confirm=None):
     except asyncio.exceptions.CancelledError:
         EXCEPTION_OCCUR = True
         logging.debug(log_messages.get("exception"))
-        logging.info("Cancelling pending tasks...")
+        logging.info(color("info", "Cancelling pending tasks..."))
         for task in asyncio.all_tasks():
             task.cancel()
             await asyncio.sleep(0.1)
     finally:
         # cleanup temp mounts
-        logging.info("Cleaning up temp mounts...")
+        logging.info(color("info", "Cleaning up temp mounts..."))
         unmount(UUID_UNCHANGED.copy())
         # cleanup temp dir
-        logging.info("Cleaning up temp directory...")
+        logging.info(color("info", "Cleaning up temp directory..."))
         recursive_delete(ZYPPERONI_TMP_DIR)
         # release zypper exclusive lock
         release_zypp_lock()
@@ -335,97 +261,83 @@ async def main_task(num_jobs, task_type, task_items, no_confirm=None):
         if not EXCEPTION_OCCUR:
             msg = "Zypperoni has finished its tasks. Handing you over to zypper..."
             if task_type == "dup":
-                logging.info(msg)
+                logging.info(color("info", msg))
                 command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} --no-cd dist-upgrade"
                 os.system(command)
             elif task_type == "in":
-                logging.info(msg)
+                logging.info(color("info", msg))
                 command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} --no-cd install {' '.join(install_pkgs)}"
                 os.system(command)
             elif task_type == "inr":
-                logging.info(msg)
+                logging.info(color("info", msg))
                 command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} --no-cd install-new-recommends"
                 os.system(command)
 
 ################################
 
-# Parse command, options, and args
-COMMAND = ""
-OPT = []
-ARG = []
-for index, item in enumerate(sys.argv):
-    if index == 0:
-        continue
-    if item in VALID_OPT:
-        OPT.append(item)
-    if item in VALID_CMD:
-        COMMAND = item
-        ARG = sys.argv[index+1:]
-        break
+# Init main parser and options
+parser = argparse.ArgumentParser(
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    prog="zypperoni",
+    description="zypperoni provides parallel operations for zypper's oft-used time consuming commands.",
+    )
+parser.add_argument("-v", "-V", "--version", action="store_true", help="print version number and exit")
+parser.add_argument("-y", "--no-confirm", action="store_true", help="automatic yes to prompts, run non-interactively")
+parser.add_argument("-j", "--jobs", type=int, default=10, choices=[x for x in range(5, 25, 5)], help="number of parallel operations")
+parser.add_argument("--debug", action="store_true", help="enable debug output")
+parser.add_argument("--no-color", action="store_true", help="disable color output")
 
-# Print help
-if "--help" in OPT:
-    print(help_text.strip())
-    zypperoni_cleanup()
+# Init subparser for commands
+subparsers = parser.add_subparsers(
+    title="commands",
+    description="type 'zypperoni <command> --help' to get command-specific help",
+    dest="command_name",
+    )
+
+# Init parser for command: refresh / ref
+help_text = "refresh all enabled repos"
+parser_ref = subparsers.add_parser("refresh", aliases=["ref"], help=help_text, description=help_text)
+parser_ref.add_argument("-f", "--force", action="store_true", help="force a complete refresh")
+
+# Init parser for command: dist-upgrade / dup
+help_text = "perform distribution upgrade"
+parser_dup = subparsers.add_parser("dist-upgrade", aliases=["dup"], help=help_text, description=help_text)
+parser_dup.add_argument("-d", "--download-only", action="store_true", help="download packages without installing")
+
+# Init parser for command: install / in
+help_text = "install one or more packages"
+parser_in = subparsers.add_parser("install", aliases=["in"], help=help_text, description=help_text)
+parser_in.add_argument("package", nargs="+", help="package name to install")
+parser_in.add_argument("-d", "--download-only", action="store_true", help="download packages without installing")
+
+# Init parser for command: install-new-recommends / inr
+help_text = "install new packages recommended by already installed ones"
+parser_inr = subparsers.add_parser("install-new-recommends", aliases=["inr"], help=help_text, description=help_text)
+parser_inr.add_argument("-d", "--download-only", action="store_true", help="download packages without installing")
+
+# Parse all options, commands, and arguments
+args = parser.parse_args()
+
+# Print help if there is nothing to be acted upon
+if not args.command_name and not args.version:
+    parser.print_help()
     sys.exit()
 
 # Print version
-if "--version" in OPT:
+if args.version:
     print(f"zypperoni v{ZYPPERONI_VERSION}")
-    zypperoni_cleanup()
     sys.exit()
-
-# Validate command
-if not COMMAND:
-    print("No valid command provided. See usage below.\n")
-    print(help_text.strip())
-    zypperoni_cleanup()
-    sys.exit(1)
-if COMMAND in ["in", "in-download"] and not ARG:
-    print(f"No arguments (packages) provided for command {COMMAND!r}. See usage below.\n")
-    print(help_text.strip())
-    zypperoni_cleanup()
-    sys.exit(1)
-
-# Validate options
-for opt in OPT:
-    if opt not in VALID_OPT:
-        print(f"Invalid option {opt!r}. See usage below.\n")
-        print(help_text.strip())
-        zypperoni_cleanup()
-        sys.exit(1)
-
-DEBUG = True if "--debug" in OPT else False
-NO_CONFIRM = True if "--no-confirm" in OPT else False
-MAX_JOBS = 10
-if "--max-jobs" in OPT:
-    try:
-        num_jobs = int(sys.argv[sys.argv.index("--max-jobs") + 1])
-        if num_jobs in range(1, 21):
-            MAX_JOBS = num_jobs
-        else:
-            raise ValueError
-    except ValueError:
-        print("Invalid value for option '--max-jobs'. Must be between 1 to 20 (inclusive)")
-        zypperoni_cleanup()
-        sys.exit(2)
-    except IndexError:
-        print("No value provided for option '--max-jobs'")
-        zypperoni_cleanup()
-        sys.exit(2)
-
 
 # Setup logging
 logging.basicConfig(
     stream=sys.stdout,
     format="%(asctime)s: %(levelname)s: %(message)s",
-    level=logging.DEBUG if DEBUG else logging.INFO,
+    level=logging.DEBUG if args.debug else logging.INFO,
 )
 
 # Bail out if we're not root
 if os.getuid() != 0:
-    logging.error("Bailing out, program must be run with root privileges")
-    zypperoni_cleanup()
+    logging.error(color("error", "Bailing out, program must be run with root privileges"))
     sys.exit(3)
 
 # Bail out if required dependencies are not available
@@ -434,11 +346,10 @@ programs = ["zypper", "echo", "ps", "sed", "awk", "mkdir", "cat", "dirname", "ba
 for program in programs:
     out, ret = shell_exec(f"command -v {program}")
     if not out:
-        logging.error(f"Bailing out, missing required dependency {program!r} in PATH ({os.environ.get('PATH')}) " \
+        msg = f"Bailing out, missing required dependency {program!r} in PATH ({os.environ.get('PATH')}) " \
             f"for user {os.environ.get('USER')!r}. The following shell tools " \
             f"are required for zypperoni to function: {', '.join(programs)}"
-        )
-        zypperoni_cleanup()
+        logging.error(color("error", msg))
         sys.exit(4)
 
 # Check if zypper is already running
@@ -456,14 +367,77 @@ if os.path.isfile(ZYPPER_PID_FILE):
             if pid_program:
                 msg = f"zypper is already invoked by the application with pid {pid} ({pid_program}).\n" \
                 "Close this application before trying again."
-                logging.error(msg)
-                zypperoni_cleanup()
+                logging.error(color("error", msg))
                 sys.exit(5)
 
-# Handle commands: ref, force-ref
-if COMMAND in ["ref", "force-ref"]:
+# Create secure temp dir
+ZYPPERONI_TMP_DIR = tempfile.mkdtemp(dir="/tmp", prefix="zypperoni_")
+
+# Shell commands to prepare temp mounts for zypper refresh
+refresh_mount_commands = f"""
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs;
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/run;
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/var/cache/zypp;
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/var/lib/ca-certificates;
+if readlink /etc/resolv.conf; then
+    RESOLV_PATH=$(readlink /etc/resolv.conf);
+    TEMP_DIR={ZYPPERONI_TMP_DIR}/{{uuid}}"$(dirname "$RESOLV_PATH")";
+    mkdir -p "$TEMP_DIR";
+    cat "$RESOLV_PATH" > "$TEMP_DIR"/"$(basename "$RESOLV_PATH")";
+fi;
+mount -o bind,ro / {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs;
+mount -t devtmpfs none {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/dev;
+mount -t tmpfs none {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/tmp;
+mount -o bind {ZYPPERONI_TMP_DIR}/{{uuid}}/run {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/run;
+mount -o bind {ZYPPERONI_TMP_DIR}/{{uuid}}/var {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var;
+mount -o bind /var/cache/zypp {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/cache/zypp;
+mount -o bind,ro /var/lib/ca-certificates {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/lib/ca-certificates;
+"""
+
+# Shell commands to perform zypper refresh / force-refresh
+refresh_shell_commands = f"""
+chroot {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs env -i zypper --non-interactive {{refresh_type}} {{repo_alias}};
+"""
+
+# Shell commands to prepare temp mounts for zypper download
+download_mount_commands = f"""
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs;
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/run;
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/var/cache/zypp;
+mkdir -p {ZYPPERONI_TMP_DIR}/{{uuid}}/var/lib/ca-certificates;
+if readlink /etc/resolv.conf; then
+    RESOLV_PATH=$(readlink /etc/resolv.conf);
+    TEMP_DIR={ZYPPERONI_TMP_DIR}/{{uuid}}"$(dirname "$RESOLV_PATH")";
+    mkdir -p "$TEMP_DIR";
+    cat "$RESOLV_PATH" > "$TEMP_DIR"/"$(basename "$RESOLV_PATH")";
+fi;
+mount -o bind,ro / {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs;
+mount -o bind {ZYPPERONI_TMP_DIR}/{{uuid}}/run {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/run;
+mount -o bind {ZYPPERONI_TMP_DIR}/{{uuid}}/var {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var;
+mount -o bind /var/cache/zypp {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/cache/zypp;
+mount -o bind,ro /var/lib/ca-certificates {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/lib/ca-certificates;
+"""
+
+# Shell commands to perform zypper download
+download_shell_commands = f"""
+chroot {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs env -i zypper --non-interactive download {{pkg_name}};
+"""
+
+# Dirs to unmount (one per line)
+umount_dirs = f"""
+{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/lib/ca-certificates
+{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var/cache/zypp
+{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/var
+{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/run
+{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/tmp
+{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/dev
+{ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs
+"""
+
+# Handle command: refresh / ref
+if args.command_name in ["refresh", "ref"]:
     # get all enabled repos
-    logging.info("Getting all enabled repos")
+    logging.info(color("info", "Getting all enabled repos"))
     REPO_ALIAS = []
     xml_output, ret = shell_exec("env -i zypper --non-interactive --no-cd --xmlout repos")
     logging.debug(xml_output)
@@ -474,90 +448,100 @@ if COMMAND in ["ref", "force-ref"]:
             REPO_ALIAS.append(item.attrib["alias"])
     logging.debug(f"Enabled repos: {REPO_ALIAS}")
     if not REPO_ALIAS:
-        logging.info("No repos found. Exiting...")
+        logging.info(color("info", "No repos found. Exiting..."))
         zypperoni_cleanup()
         sys.exit()
     try:
-        asyncio.run(main_task(MAX_JOBS, COMMAND, REPO_ALIAS))
+        asyncio.run(main_task(args.jobs, "force-ref" if args.force else "ref", REPO_ALIAS))
     except asyncio.exceptions.CancelledError:
         logging.debug("Received SIGINT for asyncio runner")
     except:
-        logging.exception("Unknown exception for asyncio runner")
+        logging.exception(color("exception", "Unknown exception for asyncio runner"))
 
-# Handle commands: dup, dup-download
-elif COMMAND in ["dup", "dup-download"]:
+# Handle command: dist-upgrade / dup
+elif args.command_name in ["dist-upgrade", "dup"]:
     # get info about dup packages
-    logging.info("Getting all packages to be downloaded for distribution upgrade")
+    logging.info(color("info", "Getting all packages to be downloaded for distribution upgrade"))
     xml_output, ret = shell_exec("env -i zypper --non-interactive --no-cd --xmlout dist-upgrade --dry-run")
     logging.debug(xml_output)
     if ret == 0 and xml_output.find("Nothing to do") != -1:
-        logging.info("Nothing to do. Exiting...")
+        logging.info(color("info", "Nothing to do. Exiting..."))
         zypperoni_cleanup()
         sys.exit()
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
-    num_pkgs = None
+    diff_bytes, download_size_bytes, num_pkgs = (None,) * 3
     for item in docroot.iter('install-summary'):
         download_size_bytes = float(item.attrib["download-size"])
         diff_bytes = float(item.attrib["space-usage-diff"])
         num_pkgs = int(item.attrib["packages-to-change"])
-        logging.info(f"Number of packages to download: {num_pkgs}")
-        logging.info(f"Total download size: {download_size_bytes/1000**2:.2f} MB")
-        if COMMAND == "dup":
-            logging.info(f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB")
-    if not num_pkgs:
-        logging.warning("There are package conflicts that must be manually resolved. See output of:\n" \
-                        "zypper --non-interactive --no-cd dist-upgrade --dry-run")
-        zypperoni_cleanup()
-        sys.exit()
-    # parse all packages from xml output
-    DUP_PKG = []
-    for item in docroot.iter("solvable"):
-        if item.attrib["type"] == "package":
-            DUP_PKG.append(item.attrib["name"])
-    # parse all packages to be removed
-    RM_PKG = []
-    for rm in docroot.iter("to-remove"):
-        for solv in rm.findall("solvable"):
-            if solv.get("type") == "package":
-                RM_PKG.append(solv.get("name"))
-    DUP_PKG = list( set(DUP_PKG) - set(RM_PKG) )
-    DUP_PKG.sort()
+        logging.info(color("info", f"Number of packages to download: {num_pkgs}"))
+        logging.info(color("info", f"Total download size: {download_size_bytes/1000**2:.2f} MB"))
+        if not args.download_only:
+            logging.info(color("info", f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB"))
+    if num_pkgs:
+        # parse all packages from xml output
+        DUP_PKG = []
+        for item in docroot.iter("solvable"):
+            if item.attrib["type"] == "package":
+                DUP_PKG.append(f"{item.attrib['name']}-{item.attrib['edition']}.{item.attrib['arch']}")
+        # parse all packages to be removed
+        RM_PKG = []
+        for rm in docroot.iter("to-remove"):
+            for solv in rm.findall("solvable"):
+                if solv.get("type") == "package":
+                    RM_PKG.append(f"{item.attrib['name']}-{item.attrib['edition']}.{item.attrib['arch']}")
+        DUP_PKG = list( set(DUP_PKG) - set(RM_PKG) )
+        DUP_PKG.sort()
+    else:
+        msg = "There are package conflicts that must be manually resolved. Falling back to secondary method of fetching packages to upgrade..."
+        logging.warning(color("warning", msg))
+        # get info about dup packages from 'zypper lu'
+        logging.info(color("info", "Getting all packages to be upgraded"))
+        xml_output, ret = shell_exec("env -i zypper --non-interactive --no-cd --xmlout list-updates --type package --all")
+        logging.debug(xml_output)
+        docroot = ET.fromstring(xml_output)
+        # parse all packages from xml output
+        DUP_PKG = []
+        for item in docroot.iter("update"):
+            if item.attrib["kind"] == "package":
+                DUP_PKG.append(f"{item.attrib['name']}-{item.attrib['edition']}.{item.attrib['arch']}")
+        DUP_PKG.sort()
     if not DUP_PKG:
-        logging.info("Nothing to do. Exiting...")
+        logging.info(color("info", "Nothing to do. Exiting..."))
         zypperoni_cleanup()
         sys.exit()
     # do not download if all packages are already in cache
-    if COMMAND == "dup-download" and download_size_bytes == 0:
-        logging.info("Nothing to do. Exiting...")
+    if args.download_only and download_size_bytes == 0:
+        logging.info(color("info", "Nothing to do. Exiting..."))
         zypperoni_cleanup()
         sys.exit()
     # proceed straight to dup if all packages are in cache
-    if COMMAND == "dup" and download_size_bytes == 0:
+    if not args.download_only and download_size_bytes == 0:
         zypperoni_cleanup()
-        logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
-        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} --no-cd dist-upgrade"
+        logging.info(color("info", "Zypperoni has finished its tasks. Handing you over to zypper..."))
+        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if args.no_confirm else ''} --no-cd dist-upgrade"
         os.system(command)
         sys.exit()
-    logging.info(f"Packages to download: {' '.join(DUP_PKG)}")
-    if not NO_CONFIRM and not query_yes_no("Would you like to continue?", default="yes"):
+    logging.info(color("info", f"Packages to download: {' '.join(DUP_PKG)}"))
+    if not args.no_confirm and not query_yes_no("Would you like to continue?", default="yes"):
         zypperoni_cleanup()
         sys.exit()
     try:
-        asyncio.run(main_task(MAX_JOBS, COMMAND, DUP_PKG, NO_CONFIRM))
+        asyncio.run(main_task(args.jobs, "dup-download" if args.download_only else "dup", DUP_PKG, args.no_confirm))
     except asyncio.exceptions.CancelledError:
         logging.debug("Received SIGINT for asyncio runner")
     except:
-        logging.exception("Unknown exception for asyncio runner")
+        logging.exception(color("exception", "Unknown exception for asyncio runner"))
 
-# Handle commands: in, in-download
-elif COMMAND in ["in", "in-download"]:
+# Handle command: install / in
+elif args.command_name in ["install", "in"]:
     # get info about install packages
-    logging.info("Getting packages and their dependencies to be downloaded for installation")
-    xml_output, ret = shell_exec(f"env -i zypper --non-interactive --no-cd --xmlout install --dry-run {' '.join(ARG)}")
+    logging.info(color("info", "Getting packages and their dependencies to be downloaded for installation"))
+    xml_output, ret = shell_exec(f"env -i zypper --non-interactive --no-cd --xmlout install --dry-run {' '.join(args.package)}")
     logging.debug(xml_output)
     if ret == 0 and xml_output.find("Nothing to do") != -1:
-        logging.info("Nothing to do. Exiting...")
+        logging.info(color("info", "Nothing to do. Exiting..."))
         zypperoni_cleanup()
         sys.exit()
     get_zypp_lock()
@@ -568,20 +552,21 @@ elif COMMAND in ["in", "in-download"]:
         download_size_bytes = float(item.attrib["download-size"])
         diff_bytes = float(item.attrib["space-usage-diff"])
         num_pkgs = int(item.attrib["packages-to-change"])
-        logging.info(f"Number of packages to download: {num_pkgs}")
-        logging.info(f"Total download size: {download_size_bytes/1000**2:.2f} MB")
-        logging.info(f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB")
+        logging.info(color("info", f"Number of packages to download: {num_pkgs}"))
+        logging.info(color("info", f"Total download size: {download_size_bytes/1000**2:.2f} MB"))
+        logging.info(color("info", f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB"))
         NO_ERR = True
     if not num_pkgs:
-        logging.warning("There are package conflicts that must be manually resolved. See output of:\n" \
-                        "zypper --non-interactive --no-cd dist-upgrade --dry-run")
+        msg = "There are package conflicts that must be manually resolved. See output of:\n" \
+            "zypper --non-interactive --no-cd dist-upgrade --dry-run"
+        logging.warning(color("warning", msg))
         zypperoni_cleanup()
         sys.exit()
     if not NO_ERR:
         friendly_output = ""
         for item in docroot.iter("message"):
             friendly_output += item.text + "\n"
-        logging.error(f"There was an error processing your request.\n[zypper output]\n{friendly_output.strip()}")
+        logging.error(color("error", f"There was an error processing your request.\n[zypper output]\n{friendly_output.strip()}"))
         zypperoni_cleanup()
         sys.exit(6)
     # parse all packages from xml output
@@ -598,40 +583,40 @@ elif COMMAND in ["in", "in-download"]:
     IN_PKG = list( set(IN_PKG) - set(RM_PKG) )
     IN_PKG.sort()
     if not IN_PKG:
-        logging.info("Nothing to do. Exiting...")
+        logging.info(color("info", "Nothing to do. Exiting..."))
         zypperoni_cleanup()
         sys.exit()
     # do not download if all packages are already in cache
-    if COMMAND == "in-download" and download_size_bytes == 0:
-        logging.info("Nothing to do. Exiting...")
+    if args.download_only and download_size_bytes == 0:
+        logging.info(color("info", "Nothing to do. Exiting..."))
         zypperoni_cleanup()
         sys.exit()
     # proceed straight to install if all packages are in cache
-    if COMMAND == "in" and download_size_bytes == 0:
+    if not args.download_only and download_size_bytes == 0:
         zypperoni_cleanup()
-        logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
-        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} --no-cd install {' '.join(ARG)}"
+        logging.info(color("info", "Zypperoni has finished its tasks. Handing you over to zypper..."))
+        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if args.no_confirm else ''} --no-cd install {' '.join(args.package)}"
         os.system(command)
         sys.exit()
-    logging.info(f"Packages to download: {' '.join(IN_PKG)}")
-    if not NO_CONFIRM and not query_yes_no("Would you like to continue?", default="yes"):
+    logging.info(color("info", f"Packages to download: {' '.join(IN_PKG)}"))
+    if not args.no_confirm and not query_yes_no("Would you like to continue?", default="yes"):
         zypperoni_cleanup()
         sys.exit()
     try:
-        asyncio.run(main_task(MAX_JOBS, COMMAND, IN_PKG, NO_CONFIRM))
+        asyncio.run(main_task(args.jobs, "in-download" if args.download_only else "in", IN_PKG, args.no_confirm))
     except asyncio.exceptions.CancelledError:
         logging.debug("Received SIGINT for asyncio runner")
     except:
-        logging.exception("Unknown exception for asyncio runner")
+        logging.exception(color("exception", "Unknown exception for asyncio runner"))
 
-# Handle commands: inr, inr-download
-elif COMMAND in ["inr", "inr-download"]:
+# Handle command: install-new-recommends / inr
+elif args.command_name in ["install-new-recommends", "inr"]:
     # get info about recommended install packages
-    logging.info("Getting new packages and their dependencies to be downloaded for recommended installation")
+    logging.info(color("info", "Getting new packages and their dependencies to be downloaded for recommended installation"))
     xml_output, ret = shell_exec(f"env -i zypper --non-interactive --no-cd --xmlout install-new-recommends --dry-run")
     logging.debug(xml_output)
     if ret == 0 and xml_output.find("Nothing to do") != -1:
-        logging.info("Nothing to do. Exiting...")
+        logging.info(color("info", "Nothing to do. Exiting..."))
         zypperoni_cleanup()
         sys.exit()
     get_zypp_lock()
@@ -641,12 +626,13 @@ elif COMMAND in ["inr", "inr-download"]:
         download_size_bytes = float(item.attrib["download-size"])
         diff_bytes = float(item.attrib["space-usage-diff"])
         num_pkgs = int(item.attrib["packages-to-change"])
-        logging.info(f"Number of packages to download: {num_pkgs}")
-        logging.info(f"Total download size: {download_size_bytes/1000**2:.2f} MB")
-        logging.info(f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB")
+        logging.info(color("info", f"Number of packages to download: {num_pkgs}"))
+        logging.info(color("info", f"Total download size: {download_size_bytes/1000**2:.2f} MB"))
+        logging.info(color("info", f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB"))
     if not num_pkgs:
-        logging.warning("There are package conflicts that must be manually resolved. See output of:\n" \
-                        "zypper --non-interactive --no-cd dist-upgrade --dry-run")
+        msg = "There are package conflicts that must be manually resolved. See output of:\n" \
+            "zypper --non-interactive --no-cd dist-upgrade --dry-run"
+        logging.warning(color("warning", msg))
         zypperoni_cleanup()
         sys.exit()
     # parse all packages from xml output
@@ -663,28 +649,28 @@ elif COMMAND in ["inr", "inr-download"]:
     INR_PKG = list( set(INR_PKG) - set(RM_PKG) )
     INR_PKG.sort()
     if not INR_PKG:
-        logging.info("Nothing to do. Exiting...")
+        logging.info(color("info", "Nothing to do. Exiting..."))
         zypperoni_cleanup()
         sys.exit()
     # do not download if all packages are already in cache
-    if COMMAND == "inr-download" and download_size_bytes == 0:
-        logging.info("Nothing to do. Exiting...")
+    if args.download_only and download_size_bytes == 0:
+        logging.info(color("info", "Nothing to do. Exiting..."))
         zypperoni_cleanup()
         sys.exit()
     # proceed straight to inr if all packages are in cache
-    if COMMAND == "inr" and download_size_bytes == 0:
+    if not args.download_only and download_size_bytes == 0:
         zypperoni_cleanup()
-        logging.info("Zypperoni has finished its tasks. Handing you over to zypper...")
-        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if NO_CONFIRM else ''} --no-cd install-new-recommends"
+        logging.info(color("info", "Zypperoni has finished its tasks. Handing you over to zypper..."))
+        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if args.no_confirm else ''} --no-cd install-new-recommends"
         os.system(command)
         sys.exit()
-    logging.info(f"Packages to download: {' '.join(INR_PKG)}")
-    if not NO_CONFIRM and not query_yes_no("Would you like to continue?", default="yes"):
+    logging.info(color("info", f"Packages to download: {' '.join(INR_PKG)}"))
+    if not args.no_confirm and not query_yes_no("Would you like to continue?", default="yes"):
         zypperoni_cleanup()
         sys.exit()
     try:
-        asyncio.run(main_task(MAX_JOBS, COMMAND, INR_PKG, NO_CONFIRM))
+        asyncio.run(main_task(args.jobs, "inr-download" if args.download_only else "inr", INR_PKG, args.no_confirm))
     except asyncio.exceptions.CancelledError:
         logging.debug("Received SIGINT for asyncio runner")
     except:
-        logging.exception("Unknown exception for asyncio runner")
+        logging.exception(color("exception", "Unknown exception for asyncio runner"))
