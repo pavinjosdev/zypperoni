@@ -1,10 +1,14 @@
 # zypperoni 🍕
-Speed up [openSUSE's](https://en.wikipedia.org/wiki/OpenSUSE) package manager [zypper](https://en.wikipedia.org/wiki/ZYpp).
+Speed up [openSUSE's](https://en.wikipedia.org/wiki/OpenSUSE) package manager [zypper](https://en.wikipedia.org/wiki/ZYpp). 🐌 ➡️ 🐱
 
 ## Synopsis
-Zypperoni (a portmanteau of zypper and pepperoni 🍕) is a simple single file program without any external dependencies that can be used to massively speed up zypper's most used and time consuming commands.
+Zypperoni (a portmanteau of zypper and pepperoni 🍕) is a simple single file program without any external dependencies that can be used to massively speed up zypper's most used and time consuming commands. 🚀
 
-Zypperoni uses various techniques to safely group together zypper operations where possible in an async manner and does not by itself make any changes to your configs or system, making it suitable for production use.
+Zypperoni uses various techniques to safely group together zypper operations where possible in an async manner and does not by itself make any changes to your configs or system, making it suitable for production use. 💫
+
+## Requirements
+There are no external dependencies other than common shell tools and the Python interpreter which should already be installed on your system.
+Minimum python version required: `3.9`. If you're on Leap and have an older Python version, use [pyenv](https://github.com/pyenv/pyenv) to get a newer version.
 
 ## Installation
 
@@ -13,33 +17,68 @@ curl -s https://raw.githubusercontent.com/pavinjosdev/zypperoni/main/zypperoni |
 sudo chmod 755 /usr/bin/zypperoni
 ```
 
+> [!CAUTION]
+> Breaking changes when moving from version 0.x.x to 1.x.x
+
 ## Usage
 Type in `zypperoni --help` for usage help.
 
 ```
-Usage: zypperoni [options] command
-       zypperoni [options] in pkg1 [pkg2 ...]
-       zypperoni [options] in-download pkg1 [pkg2 ...]
+usage: zypperoni [-h] [-v] [-y] [-j {5,10,15,20}] [--debug] [--no-color] {refresh,ref,dist-upgrade,dup,install,in,install-new-recommends,inr} ...
 
-zypperoni provides parallel operations
-for zypper's oft-used time consuming commands.
+zypperoni provides parallel operations for zypper's oft-used time consuming commands.
 
-Commands:
-  ref           - Refresh all enabled repos
-  force-ref     - Force refresh all enabled repos
-  in            - Install packages
-  in-download   - Download packages for later installation
-  dup           - Perform distribution upgrade
-  dup-download  - Download packages required for distribution upgrade
-  inr           - Install new packages recommended by already installed ones
-  inr-download  - Download new packages recommended by already installed ones
+options:
+  -h, --help            show this help message and exit
+  -v, -V, --version     print version number and exit (default: False)
+  -y, --no-confirm      automatic yes to prompts, run non-interactively (default: False)
+  -j {5,10,15,20}, --jobs {5,10,15,20}
+                        number of parallel operations (default: 10)
+  --debug               enable debug output (default: False)
+  --no-color            disable color output (default: False)
 
-Options:
-  --debug       - Enable debug output
-  --help        - Print this help and exit
-  --version     - Print version number and exit
-  --no-confirm  - Automatic yes to prompts, run non-interactively
-  --max-jobs    - Maximum number of parallel operations [default: 10 / max: 20]
+commands:
+  type 'zypperoni <command> --help' to get command-specific help
+
+  {refresh,ref,dist-upgrade,dup,install,in,install-new-recommends,inr}
+    refresh (ref)       refresh all enabled repos
+    dist-upgrade (dup)  perform distribution upgrade
+    install (in)        install one or more packages
+    install-new-recommends (inr)
+                        install new packages recommended by already installed ones
+```
+
+## Examples
+1. Refresh all repos
+```
+sudo zypperoni ref
+# or verbosely
+sudo zypperoni refresh
+```
+
+2. Force refresh all repos
+```
+sudo zypperoni ref -f
+```
+
+3. Perform distribution upgrade
+```
+sudo zypperoni dup
+```
+
+4. Download packages to perform distribution upgrade
+```
+sudo zypperoni dup -d
+```
+
+5. Install packages
+```
+sudo zypperoni in htop btop
+```
+
+6. Get help for specific command
+```
+zypperoni inr -h
 ```
 
 ## Performance tests
