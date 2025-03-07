@@ -29,7 +29,7 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "1.0.0"
+ZYPPERONI_VERSION = "1.0.1"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 
 ################################
@@ -444,7 +444,7 @@ if args.command_name in ["refresh", "ref"]:
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
     for item in docroot.iter("repo"):
-        if item.attrib["enabled"] == "1":
+        if item.attrib.get("enabled") == "1":
             REPO_ALIAS.append(item.attrib["alias"])
     logging.debug(f"Enabled repos: {REPO_ALIAS}")
     if not REPO_ALIAS:
@@ -483,7 +483,7 @@ elif args.command_name in ["dist-upgrade", "dup"]:
         # parse all packages from xml output
         DUP_PKG = []
         for item in docroot.iter("solvable"):
-            if item.attrib["type"] == "package":
+            if item.attrib.get("type") == "package":
                 DUP_PKG.append(f"{item.attrib['name']}-{item.attrib['edition']}.{item.attrib['arch']}")
         # parse all packages to be removed
         RM_PKG = []
@@ -504,7 +504,7 @@ elif args.command_name in ["dist-upgrade", "dup"]:
         # parse all packages from xml output
         DUP_PKG = []
         for item in docroot.iter("update"):
-            if item.attrib["kind"] == "package":
+            if item.attrib.get("kind") == "package":
                 DUP_PKG.append(f"{item.attrib['name']}-{item.attrib['edition']}.{item.attrib['arch']}")
         DUP_PKG.sort()
     if not DUP_PKG:
@@ -554,7 +554,8 @@ elif args.command_name in ["install", "in"]:
         num_pkgs = int(item.attrib["packages-to-change"])
         logging.info(color("info", f"Number of packages to download: {num_pkgs}"))
         logging.info(color("info", f"Total download size: {download_size_bytes/1000**2:.2f} MB"))
-        logging.info(color("info", f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB"))
+        if not args.download_only:
+            logging.info(color("info", f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB"))
         NO_ERR = True
     if not num_pkgs:
         msg = "There are package conflicts that must be manually resolved. See output of:\n" \
@@ -572,7 +573,7 @@ elif args.command_name in ["install", "in"]:
     # parse all packages from xml output
     IN_PKG = []
     for item in docroot.iter("solvable"):
-        if item.attrib["type"] == "package":
+        if item.attrib.get("type") == "package":
             IN_PKG.append(item.attrib["name"])
     # parse all packages to be removed
     RM_PKG = []
@@ -628,7 +629,8 @@ elif args.command_name in ["install-new-recommends", "inr"]:
         num_pkgs = int(item.attrib["packages-to-change"])
         logging.info(color("info", f"Number of packages to download: {num_pkgs}"))
         logging.info(color("info", f"Total download size: {download_size_bytes/1000**2:.2f} MB"))
-        logging.info(color("info", f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB"))
+        if not args.download_only:
+            logging.info(color("info", f"Space usage difference after operation: {diff_bytes/1000**2:+.2f} MB"))
     if not num_pkgs:
         msg = "There are package conflicts that must be manually resolved. See output of:\n" \
             "zypper --non-interactive --no-cd dist-upgrade --dry-run"
@@ -638,7 +640,7 @@ elif args.command_name in ["install-new-recommends", "inr"]:
     # parse all packages from xml output
     INR_PKG = []
     for item in docroot.iter("solvable"):
-        if item.attrib["type"] == "package":
+        if item.attrib.get("type") == "package":
             INR_PKG.append(item.attrib["name"])
     # parse all packages to be removed
     RM_PKG = []
