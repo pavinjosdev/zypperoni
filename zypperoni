@@ -29,7 +29,7 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "1.0.1"
+ZYPPERONI_VERSION = "1.0.2"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 
 ################################
@@ -396,7 +396,7 @@ mount -o bind,ro /var/lib/ca-certificates {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/va
 
 # Shell commands to perform zypper refresh / force-refresh
 refresh_shell_commands = f"""
-chroot {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs env -i zypper --non-interactive {{refresh_type}} {{repo_alias}};
+chroot {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs env -i ZYPP_CURL2=1 zypper --non-interactive {{refresh_type}} {{repo_alias}};
 """
 
 # Shell commands to prepare temp mounts for zypper download
