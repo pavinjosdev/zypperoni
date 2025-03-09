@@ -29,11 +29,18 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "1.0.8"
+ZYPPERONI_VERSION = "1.1.0"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 ZYPPER_ENV = "ZYPP_CURL2=1 ZYPP_PCK_PRELOAD=1 ZYPP_SINGLE_RPMTRANS=1"
 
 ################################
+
+# Function to get zypper version
+def zypper_version():
+    out, ret = shell_exec("zypper --version")
+    version = out.split()[1].split(".")
+    version = [int(x) for x in version] # MAJOR.MINOR.PATCH
+    return version
 
 # Function to get ANSI colored text
 def color(text_type, text):
