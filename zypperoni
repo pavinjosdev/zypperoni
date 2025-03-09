@@ -29,7 +29,7 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "1.0.3"
+ZYPPERONI_VERSION = "1.0.5"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 ZYPPER_ENV = "ZYPP_CURL2=1 ZYPP_PCK_PRELOAD=1 ZYPP_SINGLE_RPMTRANS=1"
 
@@ -48,10 +48,12 @@ def color(text_type, text):
     }
     color = colors.get(text_type)
     # color only if running in terminal and color output is not disabled
-    if color and sys.stdout.isatty() and args and not args.no_color:
-        return f"\033[38;2;{color[0]};{color[1]};{color[2]}m{text} \033[38;2;255;255;255m"
-    else:
-        return text
+    try:
+        if color and sys.stdout.isatty() and args and not args.no_color:
+            return f"\033[38;2;{color[0]};{color[1]};{color[2]}m{text} \033[38;2;255;255;255m"
+    except NameError:
+        pass
+    return text
 
 # Function to query user for yes or no
 def query_yes_no(question, default=None):
@@ -90,6 +92,10 @@ def release_zypp_lock():
 
 # Function to unmount temp dirs provided list of UUIDs
 def unmount(UUID):
+    try:
+        ZYPPERONI_TMP_DIR
+    except NameError:
+        return False
     umount_counter = 0
     while umount_counter < len(UUID):
         umount_counter = 0
@@ -111,7 +117,11 @@ def unmount(UUID):
 # Function to recursively delete temp files
 def recursive_delete(path):
     # perform some sanity checks
-    if not path.startswith(ZYPPERONI_TMP_DIR):
+    try:
+        ZYPPERONI_TMP_DIR
+    except NameError:
+        return False
+    if not path.startswith(tempfile.gettempdir()) or not path.startswith(ZYPPERONI_TMP_DIR):
         return False
     command = f"rm -r {quote(path)} > /dev/null 2>&1"
     os.system(command)
@@ -120,7 +130,10 @@ def recursive_delete(path):
 # Function to cleanup on zypperoni exit
 def zypperoni_cleanup():
     release_zypp_lock()
-    recursive_delete(ZYPPERONI_TMP_DIR)
+    try:
+        recursive_delete(ZYPPERONI_TMP_DIR)
+    except NameError:
+        pass
 
 # Function to get output and exit code of shell command
 def shell_exec(command):
