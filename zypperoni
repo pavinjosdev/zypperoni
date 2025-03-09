@@ -29,10 +29,18 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "1.0.1"
+ZYPPERONI_VERSION = "1.1.0"
 ZYPPER_PID_FILE = "/run/zypp.pid"
+ZYPPER_ENV = "ZYPP_CURL2=1 ZYPP_PCK_PRELOAD=1 ZYPP_SINGLE_RPMTRANS=1"
 
 ################################
+
+# Function to get zypper version
+def zypper_version():
+    out, ret = shell_exec("zypper --version")
+    version = out.split()[1].split(".")
+    version = [int(x) for x in version] # MAJOR.MINOR.PATCH
+    return version
 
 # Function to get ANSI colored text
 def color(text_type, text):
@@ -47,10 +55,12 @@ def color(text_type, text):
     }
     color = colors.get(text_type)
     # color only if running in terminal and color output is not disabled
-    if color and sys.stdout.isatty() and args and not args.no_color:
-        return f"\033[38;2;{color[0]};{color[1]};{color[2]}m{text} \033[38;2;255;255;255m"
-    else:
-        return text
+    try:
+        if color and sys.stdout.isatty() and args and not args.no_color:
+            return f"\033[38;2;{color[0]};{color[1]};{color[2]}m{text} \033[38;2;255;255;255m"
+    except NameError:
+        pass
+    return text
 
 # Function to query user for yes or no
 def query_yes_no(question, default=None):
@@ -89,6 +99,10 @@ def release_zypp_lock():
 
 # Function to unmount temp dirs provided list of UUIDs
 def unmount(UUID):
+    try:
+        ZYPPERONI_TMP_DIR
+    except NameError:
+        return False
     umount_counter = 0
     while umount_counter < len(UUID):
         umount_counter = 0
@@ -110,7 +124,14 @@ def unmount(UUID):
 # Function to recursively delete temp files
 def recursive_delete(path):
     # perform some sanity checks
-    if not path.startswith(ZYPPERONI_TMP_DIR):
+    try:
+        ZYPPERONI_TMP_DIR
+    except NameError:
+        return False
+    if not path.startswith("/tmp") or not path.startswith(ZYPPERONI_TMP_DIR):
+        return False
+    out, ret = shell_exec("mount -l | grep -c '/tmp/zypperoni_'")
+    if int(out) > 0:
         return False
     command = f"rm -r {quote(path)} > /dev/null 2>&1"
     os.system(command)
@@ -119,7 +140,10 @@ def recursive_delete(path):
 # Function to cleanup on zypperoni exit
 def zypperoni_cleanup():
     release_zypp_lock()
-    recursive_delete(ZYPPERONI_TMP_DIR)
+    try:
+        recursive_delete(ZYPPERONI_TMP_DIR)
+    except NameError:
+        pass
 
 # Function to get output and exit code of shell command
 def shell_exec(command):
@@ -128,50 +152,32 @@ def shell_exec(command):
     return output.strip(), res.returncode
 
 # Async function to perform zypper shell commands
-async def zypper_task(lock, UUID, task_type, task_item, total_items, item_counter):
+async def zypper_task(lock, UUID, args, task_item, total_items, item_counter):
     try:
         async with lock:
             uuid = UUID.pop()
         log_messages = {}
         commands = ""
         temp_dir = f"{ZYPPERONI_TMP_DIR}/{uuid}/rootfs"
-        if task_type == "ref":
-            log_messages.update({"start": f"Refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
-            log_messages.update({"success": f"Successfully refreshed repo {task_item!r}"})
-            log_messages.update({"error": f"Error refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
-            log_messages.update({"exception": f"Received SIGINT while refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
+        if args.command_name in ["refresh", "ref"]:
+            log_messages.update({"start": f"{'Force ' if args.force else ''}Refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
+            log_messages.update({"success": f"Successfully {'force ' if args.force else ''}refreshed repo {task_item!r}"})
+            log_messages.update({"error": f"Error {'force ' if args.force else ''}refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
+            log_messages.update({"exception": f"Received SIGINT while {'force ' if args.force else ''}refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
             if not os.path.isdir(temp_dir):
                 commands = refresh_mount_commands + refresh_shell_commands
                 commands = commands.format(
                     uuid=uuid,
-                    refresh_type="refresh",
+                    refresh_type="refresh --force" if args.force else "refresh",
                     repo_alias=task_item,
                 )
             else:
                 commands = refresh_shell_commands.format(
                     uuid=uuid,
-                    refresh_type="refresh",
+                    refresh_type="refresh --force" if args.force else "refresh",
                     repo_alias=task_item,
                 )
-        elif task_type == "force-ref":
-            log_messages.update({"start": f"Force refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
-            log_messages.update({"success": f"Successfully force refreshed repo {task_item!r}"})
-            log_messages.update({"error": f"Error force refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
-            log_messages.update({"exception": f"Received SIGINT while force refreshing repo [{item_counter}/{total_items}] {task_item!r}"})
-            if not os.path.isdir(temp_dir):
-                commands = refresh_mount_commands + refresh_shell_commands
-                commands = commands.format(
-                    uuid=uuid,
-                    refresh_type="refresh --force",
-                    repo_alias=task_item,
-                )
-            else:
-                commands = refresh_shell_commands.format(
-                    uuid=uuid,
-                    refresh_type="refresh --force",
-                    repo_alias=task_item,
-                )
-        elif task_type in ["dup", "dup-download", "in", "in-download", "inr", "inr-download"]:
+        elif args.command_name in ["dist-upgrade", "dup", "install", "in", "install-new-recommends", "inr"]:
             log_messages.update({"start": f"Downloading package [{item_counter}/{total_items}] {task_item!r}"})
             log_messages.update({"success": f"Successfully downloaded package {task_item!r}"})
             log_messages.update({"error": f"Error downloading package [{item_counter}/{total_items}] {task_item!r}"})
@@ -208,14 +214,14 @@ async def zypper_task(lock, UUID, task_type, task_item, total_items, item_counte
         logging.debug(log_messages.get("exception"))
 
 # Async function to perform multiple tasks concurrently
-async def main_task(num_jobs, task_type, task_items, no_confirm=None):
+async def main_task(task_items, args):
     EXCEPTION_OCCUR = False
     # init array of temp dir UUIDs corresponding to max num of jobs
-    UUID = [f"{uuid4()!s}" for _ in range(num_jobs)]
+    UUID = [f"{uuid4()!s}" for _ in range(args.jobs)]
     UUID_UNCHANGED = UUID.copy()
     total_items = len(task_items)
     item_counter = 0
-    if task_type == "in":
+    if args.command_name in ["install", "in"]:
         install_pkgs = task_items.copy()
     try:
         # start processing tasks
@@ -227,13 +233,11 @@ async def main_task(num_jobs, task_type, task_items, no_confirm=None):
             log_messages = {}
             task_item = task_items.pop(0)
             item_counter += 1
-            if task_type == "ref":
-                log_messages.update({"exception": "Received SIGINT while processing tasks to refresh repo"})
-            elif task_type == "force-ref":
-                log_messages.update({"exception": "Received SIGINT while processing tasks to force refresh repo"})
-            elif task_type in ["dup", "dup-download", "in", "in-download", "inr", "inr-download"]:
+            if args.command_name in ["refresh", "ref"]:
+                log_messages.update({"exception": f"Received SIGINT while processing tasks to {'force ' if args.force else ''}refresh repo"})
+            elif args.command_name in ["dist-upgrade", "dup", "install", "in", "install-new-recommends", "inr"]:
                 log_messages.update({"exception": "Received SIGINT while processing tasks to download packages"})
-            asyncio.create_task(zypper_task(lock, UUID, task_type, task_item, total_items, item_counter))
+            asyncio.create_task(zypper_task(lock, UUID, args, task_item, total_items, item_counter))
             await asyncio.sleep(0.1)
         # finished processing all tasks
         tasks = asyncio.all_tasks()
@@ -258,19 +262,19 @@ async def main_task(num_jobs, task_type, task_items, no_confirm=None):
         # release zypper exclusive lock
         release_zypp_lock()
         # perform additional zypper commands (if any) on no exception
-        if not EXCEPTION_OCCUR:
+        if not EXCEPTION_OCCUR and \
+        args.command_name in ["dist-upgrade", "dup", "install", "in", "install-new-recommends", "inr"] and \
+        not args.download_only:
             msg = "Zypperoni has finished its tasks. Handing you over to zypper..."
-            if task_type == "dup":
-                logging.info(color("info", msg))
-                command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} --no-cd dist-upgrade"
+            logging.info(color("info", msg))
+            if args.command_name in ["dist-upgrade", "dup"]:
+                command = f"env {ZYPPER_ENV} zypper {'--non-interactive' if args.no_confirm else ''} --no-cd dist-upgrade"
                 os.system(command)
-            elif task_type == "in":
-                logging.info(color("info", msg))
-                command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} --no-cd install {' '.join(install_pkgs)}"
+            elif args.command_name in ["install", "in"]:
+                command = f"env {ZYPPER_ENV} zypper {'--non-interactive' if args.no_confirm else ''} --no-cd install {' '.join(install_pkgs)}"
                 os.system(command)
-            elif task_type == "inr":
-                logging.info(color("info", msg))
-                command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if no_confirm else ''} --no-cd install-new-recommends"
+            elif args.command_name in ["install-new-recommends", "inr"]:
+                command = f"env {ZYPPER_ENV} zypper {'--non-interactive' if args.no_confirm else ''} --no-cd install-new-recommends"
                 os.system(command)
 
 ################################
@@ -396,7 +400,7 @@ mount -o bind,ro /var/lib/ca-certificates {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/va
 
 # Shell commands to perform zypper refresh / force-refresh
 refresh_shell_commands = f"""
-chroot {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs env -i zypper --non-interactive {{refresh_type}} {{repo_alias}};
+chroot {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs env -i {ZYPPER_ENV} zypper --non-interactive {{refresh_type}} {{repo_alias}};
 """
 
 # Shell commands to prepare temp mounts for zypper download
@@ -420,7 +424,7 @@ mount -o bind,ro /var/lib/ca-certificates {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs/va
 
 # Shell commands to perform zypper download
 download_shell_commands = f"""
-chroot {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs env -i zypper --non-interactive download {{pkg_name}};
+chroot {ZYPPERONI_TMP_DIR}/{{uuid}}/rootfs env -i {ZYPPER_ENV} zypper --non-interactive download {{pkg_name}};
 """
 
 # Dirs to unmount (one per line)
@@ -439,7 +443,7 @@ if args.command_name in ["refresh", "ref"]:
     # get all enabled repos
     logging.info(color("info", "Getting all enabled repos"))
     REPO_ALIAS = []
-    xml_output, ret = shell_exec("env -i zypper --non-interactive --no-cd --xmlout repos")
+    xml_output, ret = shell_exec(f"env -i {ZYPPER_ENV} zypper --non-interactive --no-cd --xmlout repos")
     logging.debug(xml_output)
     get_zypp_lock()
     docroot = ET.fromstring(xml_output)
@@ -452,7 +456,7 @@ if args.command_name in ["refresh", "ref"]:
         zypperoni_cleanup()
         sys.exit()
     try:
-        asyncio.run(main_task(args.jobs, "force-ref" if args.force else "ref", REPO_ALIAS))
+        asyncio.run(main_task(REPO_ALIAS, args))
     except asyncio.exceptions.CancelledError:
         logging.debug("Received SIGINT for asyncio runner")
     except:
@@ -462,7 +466,7 @@ if args.command_name in ["refresh", "ref"]:
 elif args.command_name in ["dist-upgrade", "dup"]:
     # get info about dup packages
     logging.info(color("info", "Getting all packages to be downloaded for distribution upgrade"))
-    xml_output, ret = shell_exec("env -i zypper --non-interactive --no-cd --xmlout dist-upgrade --dry-run")
+    xml_output, ret = shell_exec(f"env -i {ZYPPER_ENV} zypper --non-interactive --no-cd --xmlout dist-upgrade --dry-run")
     logging.debug(xml_output)
     if ret == 0 and xml_output.find("Nothing to do") != -1:
         logging.info(color("info", "Nothing to do. Exiting..."))
@@ -498,7 +502,7 @@ elif args.command_name in ["dist-upgrade", "dup"]:
         logging.warning(color("warning", msg))
         # get info about dup packages from 'zypper lu'
         logging.info(color("info", "Getting all packages to be upgraded"))
-        xml_output, ret = shell_exec("env -i zypper --non-interactive --no-cd --xmlout list-updates --type package --all")
+        xml_output, ret = shell_exec(f"env -i {ZYPPER_ENV} zypper --non-interactive --no-cd --xmlout list-updates --type package --all")
         logging.debug(xml_output)
         docroot = ET.fromstring(xml_output)
         # parse all packages from xml output
@@ -520,7 +524,7 @@ elif args.command_name in ["dist-upgrade", "dup"]:
     if not args.download_only and download_size_bytes == 0:
         zypperoni_cleanup()
         logging.info(color("info", "Zypperoni has finished its tasks. Handing you over to zypper..."))
-        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if args.no_confirm else ''} --no-cd dist-upgrade"
+        command = f"env {ZYPPER_ENV} zypper {'--non-interactive' if args.no_confirm else ''} --no-cd dist-upgrade"
         os.system(command)
         sys.exit()
     logging.info(color("info", f"Packages to download: {' '.join(DUP_PKG)}"))
@@ -528,7 +532,7 @@ elif args.command_name in ["dist-upgrade", "dup"]:
         zypperoni_cleanup()
         sys.exit()
     try:
-        asyncio.run(main_task(args.jobs, "dup-download" if args.download_only else "dup", DUP_PKG, args.no_confirm))
+        asyncio.run(main_task(DUP_PKG, args))
     except asyncio.exceptions.CancelledError:
         logging.debug("Received SIGINT for asyncio runner")
     except:
@@ -538,7 +542,7 @@ elif args.command_name in ["dist-upgrade", "dup"]:
 elif args.command_name in ["install", "in"]:
     # get info about install packages
     logging.info(color("info", "Getting packages and their dependencies to be downloaded for installation"))
-    xml_output, ret = shell_exec(f"env -i zypper --non-interactive --no-cd --xmlout install --dry-run {' '.join(args.package)}")
+    xml_output, ret = shell_exec(f"env -i {ZYPPER_ENV} zypper --non-interactive --no-cd --xmlout install --dry-run {' '.join(args.package)}")
     logging.debug(xml_output)
     if ret == 0 and xml_output.find("Nothing to do") != -1:
         logging.info(color("info", "Nothing to do. Exiting..."))
@@ -596,7 +600,7 @@ elif args.command_name in ["install", "in"]:
     if not args.download_only and download_size_bytes == 0:
         zypperoni_cleanup()
         logging.info(color("info", "Zypperoni has finished its tasks. Handing you over to zypper..."))
-        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if args.no_confirm else ''} --no-cd install {' '.join(args.package)}"
+        command = f"env {ZYPPER_ENV} zypper {'--non-interactive' if args.no_confirm else ''} --no-cd install {' '.join(args.package)}"
         os.system(command)
         sys.exit()
     logging.info(color("info", f"Packages to download: {' '.join(IN_PKG)}"))
@@ -604,7 +608,7 @@ elif args.command_name in ["install", "in"]:
         zypperoni_cleanup()
         sys.exit()
     try:
-        asyncio.run(main_task(args.jobs, "in-download" if args.download_only else "in", IN_PKG, args.no_confirm))
+        asyncio.run(main_task(IN_PKG, args))
     except asyncio.exceptions.CancelledError:
         logging.debug("Received SIGINT for asyncio runner")
     except:
@@ -614,7 +618,7 @@ elif args.command_name in ["install", "in"]:
 elif args.command_name in ["install-new-recommends", "inr"]:
     # get info about recommended install packages
     logging.info(color("info", "Getting new packages and their dependencies to be downloaded for recommended installation"))
-    xml_output, ret = shell_exec(f"env -i zypper --non-interactive --no-cd --xmlout install-new-recommends --dry-run")
+    xml_output, ret = shell_exec(f"env -i {ZYPPER_ENV} zypper --non-interactive --no-cd --xmlout install-new-recommends --dry-run")
     logging.debug(xml_output)
     if ret == 0 and xml_output.find("Nothing to do") != -1:
         logging.info(color("info", "Nothing to do. Exiting..."))
@@ -663,7 +667,7 @@ elif args.command_name in ["install-new-recommends", "inr"]:
     if not args.download_only and download_size_bytes == 0:
         zypperoni_cleanup()
         logging.info(color("info", "Zypperoni has finished its tasks. Handing you over to zypper..."))
-        command = f"env ZYPP_SINGLE_RPMTRANS=1 zypper {'--non-interactive' if args.no_confirm else ''} --no-cd install-new-recommends"
+        command = f"env {ZYPPER_ENV} zypper {'--non-interactive' if args.no_confirm else ''} --no-cd install-new-recommends"
         os.system(command)
         sys.exit()
     logging.info(color("info", f"Packages to download: {' '.join(INR_PKG)}"))
@@ -671,7 +675,7 @@ elif args.command_name in ["install-new-recommends", "inr"]:
         zypperoni_cleanup()
         sys.exit()
     try:
-        asyncio.run(main_task(args.jobs, "inr-download" if args.download_only else "inr", INR_PKG, args.no_confirm))
+        asyncio.run(main_task(INR_PKG, args))
     except asyncio.exceptions.CancelledError:
         logging.debug("Received SIGINT for asyncio runner")
     except:
