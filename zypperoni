@@ -29,7 +29,7 @@ from shlex import quote
 import xml.etree.ElementTree as ET
 
 # Constants
-ZYPPERONI_VERSION = "1.1.0"
+ZYPPERONI_VERSION = "1.1.1"
 ZYPPER_PID_FILE = "/run/zypp.pid"
 ZYPPER_ENV = "ZYPP_CURL2=1 ZYPP_PCK_PRELOAD=1 ZYPP_SINGLE_RPMTRANS=1"
 
@@ -472,7 +472,6 @@ elif args.command_name in ["dist-upgrade", "dup"]:
         logging.info(color("info", "Nothing to do. Exiting..."))
         zypperoni_cleanup()
         sys.exit()
-    get_zypp_lock()
     docroot = ET.fromstring(xml_output)
     diff_bytes, download_size_bytes, num_pkgs = (None,) * 3
     for item in docroot.iter('install-summary'):
@@ -511,6 +510,7 @@ elif args.command_name in ["dist-upgrade", "dup"]:
             if item.attrib.get("kind") == "package":
                 DUP_PKG.append(f"{item.attrib['name']}-{item.attrib['edition']}.{item.attrib['arch']}")
         DUP_PKG.sort()
+    get_zypp_lock()
     if not DUP_PKG:
         logging.info(color("info", "Nothing to do. Exiting..."))
         zypperoni_cleanup()
